@@ -1,4 +1,6 @@
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -176,3 +178,111 @@ def test_rendered_shell_hooks_are_executable(tmp_path: Path) -> None:
     ]
     for path in executable_paths:
         assert path.stat().st_mode & 0o111, path
+
+
+def load_module(path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_rendered_secret_guards_allow_harness_security_paths(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    secret_scan = load_module(tmp_path / "tools" / "hooks" / "secret_scan.py")
+    artifact_policy = load_module(tmp_path / "tools" / "frontier" / "artifact_policy.py")
+
+    allowed_paths = [
+        "tools/hooks/secret_scan.py",
+        "templates/tools/hooks/secret_scan.py.j2",
+        "docs/artifact_policy.md",
+        ".claude/rules/security.md",
+        "evals/canaries/forbidden_secret/README.md",
+    ]
+    for relative_path in allowed_paths:
+        assert not secret_scan.is_forbidden(relative_path), relative_path
+        assert artifact_policy.check_path(Path(relative_path)), relative_path
+
+
+def test_rendered_secret_guards_block_sensitive_artifacts(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    secret_scan = load_module(tmp_path / "tools" / "hooks" / "secret_scan.py")
+    artifact_policy = load_module(tmp_path / "tools" / "frontier" / "artifact_policy.py")
+
+    forbidden_paths = [
+        ".env",
+        ".env.local",
+        "config/.env.production",
+        "deploy.pem",
+        "id_rsa.key",
+        "credentials",
+        "credentials/aws.json",
+        "config/credential",
+        "config/db_credentials.json",
+        "api_token.txt",
+        "github-token.yml",
+        "private_key.txt",
+        "my-private-key.txt",
+        "secret.txt",
+        "app_secret.yml",
+    ]
+    for relative_path in forbidden_paths:
+        assert secret_scan.is_forbidden(relative_path), relative_path
+        assert not artifact_policy.check_path(Path(relative_path)), relative_path
+
+
+def test_rendered_frontier_policy_avoids_broad_secret_substring_globs(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    policy = (tmp_path / "frontier.yaml").read_text(encoding="utf-8")
+    assert '"**/*secret*"' not in policy
+    assert '"**/*credential*"' not in policy
+
+
+def test_rendered_test_tamper_guard_allows_own_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    test_tamper_guard = load_module(tmp_path / "tools" / "hooks" / "test_tamper_guard.py")
+
+    monkeypatch.chdir(tmp_path)
+    assert test_tamper_guard.main(["tools/hooks/test_tamper_guard.py"]) == 0
+
+
+def test_rendered_forbidden_pattern_guard_allows_policy_scaffold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    forbidden_pattern_guard = load_module(
+        tmp_path / "tools" / "hooks" / "forbidden_pattern_guard.py"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    assert forbidden_pattern_guard.main(
+        ["frontier.yaml", "tools/hooks/forbidden_pattern_guard.py"]
+    ) == 0
+
+    unsafe_script = tmp_path / "unsafe.sh"
+    unsafe_script.write_text("git push --force\n", encoding="utf-8")
+    assert forbidden_pattern_guard.main(["unsafe.sh"]) == 1

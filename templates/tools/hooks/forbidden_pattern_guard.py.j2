@@ -6,7 +6,13 @@ import argparse
 from pathlib import Path
 
 
-FORBIDDEN_SNIPPETS = ["git add" + " .", "git add" + " -A", "git reset" + " --hard", "force_push"]
+FORBIDDEN_SNIPPETS = [
+    "git add" + " .",
+    "git add" + " -A",
+    "git reset" + " --hard",
+    "git push" + " --force",
+    "git push" + " -f",
+]
 CHECK_SUFFIXES = {".py", ".sh", ".bash", ".zsh", ".toml", ".yml", ".yaml"}
 
 
