@@ -1,0 +1,92 @@
+"""Ralph strict-loop scaffold for {{ project_name }}.
+
+This driver creates run ledgers and previews state transitions. It does not call
+Claude, Codex, GitHub, or merge APIs until a project-specific implementation
+wires those integrations.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def utc_id() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
+
+
+def init_run(campaign_id: str, goal: str | None, lane: str) -> Path:
+    run_id = f"{utc_id()}_{campaign_id}"
+    run_dir = ROOT / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "phases").mkdir(exist_ok=True)
+    state = {
+        "schema_version": "frontier-run-state-v3",
+        "run_id": run_id,
+        "campaign_id": campaign_id,
+        "workflow": "workflow2",
+        "driver": "ralph_frontier_strict_scaffold",
+        "status": "RUNNING",
+        "current_phase_id": None,
+        "current_micro_attempt": 0,
+        "lane": lane,
+        "phases": [],
+        "stop_requested": False,
+        "last_event_id": 1,
+    }
+    (run_dir / "state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "events.jsonl").write_text(json.dumps({"event_id": 1, "event": "RUN_INIT"}) + "\n", encoding="utf-8")
+    (run_dir / "costs.jsonl").write_text("", encoding="utf-8")
+    (run_dir / "progress.txt").write_text("Run initialized. Provider execution is not wired yet.\n", encoding="utf-8")
+    (run_dir / "prd.json").write_text(json.dumps({"goal": goal, "campaign_id": campaign_id}, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "RUN_GOAL.md").write_text(f"# Run Goal\n\n{goal or campaign_id}\n", encoding="utf-8")
+    (run_dir / "RUN_SUMMARY.md").write_text(
+        "# Run Summary\n\nStatus: initialized scaffold. No provider execution was performed.\n",
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def run_campaign(campaign_id: str | None, goal: str | None, lane: str) -> int:
+    resolved_campaign = campaign_id or "AD_HOC_GOAL"
+    run_dir = init_run(resolved_campaign, goal, lane)
+    print(f"Initialized Workflow 2 scaffold run at {run_dir.relative_to(ROOT)}")
+    print("No external provider, GitHub, or merge operation was performed.")
+    return 0
+
+
+def resume(run_id: str) -> int:
+    run_dir = ROOT / "runs" / run_id
+    if not run_dir.exists():
+        print(f"Unknown run id: {run_id}")
+        return 1
+    print(f"Resume scaffold for {run_id}. Inspect {run_dir / 'state.json'}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run or resume the Frontier Ralph strict-loop scaffold.")
+    subparsers = parser.add_subparsers(dest="command")
+    run_parser = subparsers.add_parser("run", help="Initialize a Workflow 2 run scaffold.")
+    run_parser.add_argument("--campaign-id")
+    run_parser.add_argument("--goal")
+    run_parser.add_argument("--lane", default="yellow")
+    resume_parser = subparsers.add_parser("resume", help="Resume an existing run scaffold.")
+    resume_parser.add_argument("--run-id", required=True)
+    args = parser.parse_args(argv)
+
+    if args.command == "run":
+        return run_campaign(args.campaign_id, args.goal, args.lane)
+    if args.command == "resume":
+        return resume(args.run_id)
+    parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

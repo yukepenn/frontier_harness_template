@@ -1,0 +1,29 @@
+"""Frontier artifact policy checks."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+FORBIDDEN_SUFFIXES = {".key", ".pem", ".parquet", ".feather", ".sqlite", ".db", ".duckdb", ".pt", ".pth", ".onnx", ".pkl", ".joblib"}
+FORBIDDEN_NAMES = {".env"}
+
+
+def check_path(path: Path) -> bool:
+    lowered = path.name.lower()
+    return path.suffix.lower() not in FORBIDDEN_SUFFIXES and lowered not in FORBIDDEN_NAMES and "secret" not in lowered and "credential" not in lowered
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Check paths against Frontier artifact policy.")
+    parser.add_argument("paths", nargs="*")
+    args = parser.parse_args(argv)
+    violations = [path for path in map(Path, args.paths) if not check_path(path)]
+    for violation in violations:
+        print(f"Forbidden artifact path: {violation}")
+    return 1 if violations else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

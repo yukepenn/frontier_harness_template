@@ -10,7 +10,7 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
-TEMPLATE_VERSION = "0.1.0"
+TEMPLATE_VERSION = "3.0.0"
 VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}")
 
 
@@ -144,6 +144,8 @@ def render_tree(
             destination.write_text(rendered, encoding="utf-8")
         else:
             shutil.copyfile(source, destination)
+        if destination.suffix == ".sh" or ".githooks" in destination.parts:
+            destination.chmod(destination.stat().st_mode | 0o111)
         written.append(destination)
     return written
 

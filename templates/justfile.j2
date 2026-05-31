@@ -1,10 +1,79 @@
+set shell := ["bash", "-uc"]
+
 default:
     just --list
 
-validate:
-    test -f AGENTS.md
-    test -f CLAUDE.md
-    test -f frontier.yaml
+smoke:
+    python tools/verify.py --smoke
 
-status:
-    git status --short
+lint:
+    python tools/verify.py --lint
+
+typecheck:
+    python tools/verify.py --typecheck
+
+test:
+    python tools/verify.py --test
+
+verify:
+    python tools/verify.py --all
+
+verify-ci:
+    python tools/verify.py --ci
+
+verify-canaries:
+    python tools/hooks/canary_runner.py
+
+audit:
+    python tools/verify.py --boundaries
+
+validate-artifacts:
+    python tools/verify.py --artifacts
+
+frontier-status:
+    python tools/frontier/phase.py status
+
+frontier-doctor:
+    python tools/frontier/bootstrap.py doctor
+
+frontier-check-config:
+    python tools/frontier/bootstrap.py check-config
+
+frontier-new-phase:
+    python tools/frontier/phase.py new --name "$${FRONTIER_PHASE_NAME:-manual-phase}" --lane "$${FRONTIER_LANE:-yellow}" --campaign "$${FRONTIER_CAMPAIGN:-MANUAL}"
+
+frontier-run-workflow1:
+    python tools/frontier/phase.py workflow1 --phase "$${FRONTIER_PHASE:?set FRONTIER_PHASE}"
+
+frontier-review:
+    python tools/frontier/phase.py review --phase "$${FRONTIER_PHASE:?set FRONTIER_PHASE}"
+
+frontier-merge:
+    python tools/frontier/merge_gate.py --phase "$${FRONTIER_PHASE:?set FRONTIER_PHASE}"
+
+frontier-new-campaign:
+    python tools/frontier/campaign.py new --campaign-id "$${FRONTIER_CAMPAIGN:?set FRONTIER_CAMPAIGN}"
+
+frontier-run-campaign:
+    python tools/frontier/ralph_driver.py run --campaign-id "$${FRONTIER_CAMPAIGN:?set FRONTIER_CAMPAIGN}"
+
+frontier-run-workflow2:
+    python tools/frontier/ralph_driver.py run --goal "$${FRONTIER_GOAL:?set FRONTIER_GOAL}" --lane "$${FRONTIER_LANE:-yellow}"
+
+frontier-resume:
+    python tools/frontier/ralph_driver.py resume --run-id "$${FRONTIER_RUN:?set FRONTIER_RUN}"
+
+frontier-stop:
+    touch "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/STOP"
+
+frontier-tail:
+    tail -f "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/events.jsonl"
+
+frontier-summary:
+    cat "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/RUN_SUMMARY.md"
+
+frontier-clean-worktrees:
+    python tools/frontier/worktree_manager.py clean
+
+frontier-list-worktrees:
+    git worktree list

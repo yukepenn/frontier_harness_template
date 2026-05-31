@@ -1,0 +1,9 @@
+name: app_product
+description: "Application product harness for user-facing features, product workflows, and release gates."
+default_branch: main
+primary_language: mixed
+automation_lane: supervised
+risk_level: elevated
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

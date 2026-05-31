@@ -1,7 +1,15 @@
-# frontier-audit
+---
+description: Audit architecture boundaries, imports, artifact policy, and project invariants.
+---
 
-Use this skill to audit repository state, documentation drift, and validation coverage.
+Check:
 
-## Audit Notes
+- forbidden imports
+- layer violations
+- data flow violations
+- runtime operation gate bypasses
+- raw artifact commits
+- test policy violations
+- project-specific hard rules
 
 Record findings in `reviews/` or the active campaign. Separate confirmed defects from questions and follow-up ideas.

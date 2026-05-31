@@ -1,10 +1,28 @@
-# frontier-spec
+---
+description: Write an executable Frontier phase spec from campaign plan or human intent.
+---
 
-Use this skill to write implementation specs before broad or risky changes.
+Output:
 
-## Spec Standard
+- `specs/<CAMPAIGN_ID>/<PHASE_ID>-<slug>.md`
 
-- State the problem and desired behavior.
-- Identify impacted modules, data, docs, and tests.
-- Define validation and rollback notes.
-- Link the owning campaign when one exists.
+Spec must include:
+
+- frontmatter
+- purpose
+- context
+- scope
+- non-goals
+- expected files
+- forbidden changes
+- interfaces or contracts
+- validation commands
+- artifact policy
+- allowed test paths
+- done criteria
+- handoff requirements
+- review requirements
+- auto-merge policy
+- repair or rollback plan
+
+Do not write implementation code.

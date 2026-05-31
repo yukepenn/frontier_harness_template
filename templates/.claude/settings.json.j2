@@ -3,5 +3,11 @@
   "profile": "{{ profile_name }}",
   "template_version": "{{ template_version }}",
   "requires_human_review": {{ profile.requires_human_review }},
-  "auto_merge": false
+  "auto_merge": false,
+  "hooks": {
+    "pre_tool_use": ".claude/hooks/pre-tool-use.sh",
+    "post_tool_use": ".claude/hooks/post-tool-use.sh",
+    "stop": ".claude/hooks/stop-hook.sh",
+    "notification": ".claude/hooks/notification.sh"
+  }
 }

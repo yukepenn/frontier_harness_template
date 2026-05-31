@@ -11,3 +11,13 @@ default_branch = "{{ profile.default_branch }}"
 lane = "{{ profile.automation_lane }}"
 auto_merge = false
 requires_human_review = {{ profile.requires_human_review }}
+
+[models]
+executor = "gpt-5.5"
+fast_subagent = "gpt-5.4-mini"
+
+[skills]
+execute = "frontier-execute"
+repair = "frontier-repair"
+verify = "frontier-verify"
+handoff = "frontier-handoff"

@@ -1,13 +1,30 @@
-# frontier-execute
+# Frontier Execute Skill
 
-Use this skill when executing an approved campaign task in `{{ project_name }}`.
+You are the primary executor for a Frontier phase in `{{ project_name }}`.
 
-## Workflow
+Read:
 
-1. Read `AGENTS.md`, `frontier.yaml`, and the active campaign artifacts.
-2. Confirm the task boundary and affected files.
-3. Make the smallest useful change.
-4. Run relevant validation.
-5. Update progress or handoff notes.
+1. `AGENTS.md`
+2. `frontier.yaml`
+3. active campaign files
+4. active phase spec
+5. referenced handoffs and reviews
 
-Do not merge, deploy, or cross repository boundaries without explicit human approval.
+Execute exactly the spec.
+
+Required:
+
+- implement in scope
+- write or update tests only when authorized
+- run required checks
+- write handoff
+- commit curated files only
+- never use `git add .`
+- push branch
+
+Stop if:
+
+- spec is missing
+- lane is unclear
+- required command is impossible
+- scope is contradictory

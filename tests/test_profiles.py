@@ -4,6 +4,7 @@ from tools.render_templates import load_profile, repo_root
 EXPECTED_PROFILES = {
     "generic",
     "software",
+    "app_product",
     "research",
     "trading_research",
     "trading_broker",

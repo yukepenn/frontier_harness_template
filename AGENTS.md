@@ -1,12 +1,13 @@
 # AGENTS.md
 
-This repository is the source for the Frontier Harness Generic template. Work here should keep the template reusable, project-neutral, and reviewable.
+This repository is the source for Frontier Harness Generic v3.0. Work here should keep the template reusable, project-neutral, and reviewable.
 
 ## Scope
 
 - Maintain template files, profiles, tests, docs, and bootstrap tooling.
 - Do not add project-specific business logic.
-- Do not add autonomous merge, broker, live trading, or paper trading integrations in G001.
+- Do not add broker, live trading, or paper trading integrations.
+- Keep generated Workflow 2, Ralph, and auto-merge components as scaffolding unless a later goal explicitly asks for real provider or GitHub orchestration.
 - Do not clone, modify, or depend on downstream repositories.
 
 ## Engineering Rules

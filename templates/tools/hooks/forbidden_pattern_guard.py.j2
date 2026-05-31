@@ -1,0 +1,32 @@
+"""Forbidden pattern guard scaffold."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+FORBIDDEN_SNIPPETS = ["git add" + " .", "git add" + " -A", "git reset" + " --hard", "force_push"]
+CHECK_SUFFIXES = {".py", ".sh", ".bash", ".zsh", ".toml", ".yml", ".yaml"}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Detect forbidden operational patterns.")
+    parser.add_argument("paths", nargs="*")
+    args = parser.parse_args(argv)
+    violations: list[str] = []
+    for raw_path in args.paths:
+        path = Path(raw_path)
+        if path.suffix not in CHECK_SUFFIXES and path.name not in {"justfile", "Justfile"}:
+            continue
+        if path.exists() and path.is_file():
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if any(snippet in text for snippet in FORBIDDEN_SNIPPETS):
+                violations.append(raw_path)
+    for violation in violations:
+        print(f"Forbidden pattern found: {violation}")
+    return 1 if violations else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

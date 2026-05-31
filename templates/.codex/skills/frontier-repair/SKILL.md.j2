@@ -1,11 +1,19 @@
-# frontier-repair
+# Frontier Repair Skill
 
-Use this skill when fixing a failed validation, regression, or review finding.
+Read:
 
-## Workflow
+- active spec
+- handoff
+- Claude review
+- verdict JSON
 
-1. Capture the failing command and error.
-2. Reproduce locally when practical.
-3. Fix the cause, not only the symptom.
-4. Re-run the failing validation and nearby checks.
-5. Record the repair in the relevant campaign or handoff.
+Fix only valid in-scope review findings.
+
+Rules:
+
+- do not broaden scope
+- do not weaken tests
+- do not rewrite architecture unless review requires it and the spec allows it
+- update handoff with a repair summary
+- run required checks
+- commit curated files only
