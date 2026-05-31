@@ -1,5 +1,6 @@
 import importlib.util
 import re
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
@@ -289,6 +290,22 @@ def load_module(path: Path) -> ModuleType:
     return module
 
 
+def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"Command failed: {' '.join(command)}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    return result
+
+
 def test_rendered_secret_guards_allow_harness_security_paths(tmp_path: Path) -> None:
     profile = load_profile("generic")
     context = build_context("sample_project", profile)
@@ -380,9 +397,36 @@ def test_rendered_forbidden_pattern_guard_allows_policy_scaffold(
 
     monkeypatch.chdir(tmp_path)
     assert forbidden_pattern_guard.main(
-        ["frontier.yaml", "tools/hooks/forbidden_pattern_guard.py"]
+        [
+            "AGENTS.md",
+            "frontier.yaml",
+            ".codex/agents/worker.toml",
+            "tools/hooks/forbidden_pattern_guard.py",
+        ]
     ) == 0
 
-    unsafe_script = tmp_path / "unsafe.sh"
+    policy_file = tmp_path / "docs" / "negative-policy.yaml"
+    policy_file.write_text("instruction: do not use git add .\n", encoding="utf-8")
+    assert forbidden_pattern_guard.main(["docs/negative-policy.yaml"]) == 0
+
+    unsafe_script = tmp_path / "scripts" / "unsafe.sh"
     unsafe_script.write_text("git push --force\n", encoding="utf-8")
-    assert forbidden_pattern_guard.main(["unsafe.sh"]) == 1
+    assert forbidden_pattern_guard.main(["scripts/unsafe.sh"]) == 1
+
+
+def test_rendered_scaffold_can_commit_with_policy_metadata(
+    tmp_path: Path,
+) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    written = render_tree(repo_root() / "templates", tmp_path, context)
+    relative_paths = sorted(str(path.relative_to(tmp_path)) for path in written)
+    assert ".codex/agents/worker.toml" in relative_paths
+
+    run_command(["git", "init"], tmp_path)
+    run_command(["git", "config", "user.name", "Frontier Test"], tmp_path)
+    run_command(["git", "config", "user.email", "frontier-test@example.invalid"], tmp_path)
+    run_command(["git", "config", "core.hooksPath", ".githooks"], tmp_path)
+    run_command(["git", "add", *relative_paths], tmp_path)
+    run_command(["git", "commit", "-m", "test: bootstrap scaffold"], tmp_path)
