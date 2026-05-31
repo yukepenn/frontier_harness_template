@@ -54,23 +54,26 @@ frontier-merge:
 frontier-new-campaign:
     python tools/frontier/campaign.py new --campaign-id "$${FRONTIER_CAMPAIGN:?set FRONTIER_CAMPAIGN}"
 
-frontier-run-campaign:
-    python tools/frontier/ralph_driver.py run --campaign-id "$${FRONTIER_CAMPAIGN:?set FRONTIER_CAMPAIGN}"
+frontier-run-campaign $campaign_id="G005_WORKFLOW2_TOY":
+    python tools/frontier/ralph_driver.py run --campaign-id "$campaign_id"
 
-frontier-run-workflow2:
+frontier-run-workflow2 $campaign_id="G005_WORKFLOW2_TOY":
+    python tools/frontier/ralph_driver.py run --campaign-id "$campaign_id"
+
+frontier-run-workflow2-goal:
     python tools/frontier/ralph_driver.py run --goal "$${FRONTIER_GOAL:?set FRONTIER_GOAL}" --lane "$${FRONTIER_LANE:-yellow}"
 
-frontier-resume:
-    python tools/frontier/ralph_driver.py resume --run-id "$${FRONTIER_RUN:?set FRONTIER_RUN}"
+frontier-resume $run_id:
+    python tools/frontier/ralph_driver.py resume --run-id "$run_id"
 
-frontier-stop:
-    touch "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/STOP"
+frontier-stop $run_id:
+    touch "runs/$run_id/STOP"
 
-frontier-tail:
-    tail -f "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/events.jsonl"
+frontier-tail $run_id:
+    tail -f "runs/$run_id/events.jsonl"
 
-frontier-summary:
-    cat "runs/$${FRONTIER_RUN:?set FRONTIER_RUN}/RUN_SUMMARY.md"
+frontier-summary $run_id:
+    cat "runs/$run_id/RUN_SUMMARY.md"
 
 frontier-clean-worktrees:
     python tools/frontier/worktree_manager.py clean
