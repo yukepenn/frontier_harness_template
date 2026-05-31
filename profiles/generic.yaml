@@ -1,0 +1,9 @@
+name: generic
+description: "General-purpose harness for projects that do not need domain-specific rules."
+default_branch: main
+primary_language: any
+automation_lane: supervised
+risk_level: standard
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

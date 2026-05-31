@@ -1,0 +1,9 @@
+name: trading_broker
+description: "Broker-adjacent harness profile with strict boundaries and no live integration in this template."
+default_branch: main
+primary_language: python
+automation_lane: human_approved
+risk_level: critical
+requires_human_review: true
+trading_enabled: true
+broker_enabled: true

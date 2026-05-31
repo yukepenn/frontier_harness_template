@@ -1,0 +1,9 @@
+name: research
+description: "Research harness for literature review, experiments, artifacts, and reproducibility."
+default_branch: main
+primary_language: mixed
+automation_lane: supervised
+risk_level: standard
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

@@ -1,0 +1,10 @@
+default:
+    just --list
+
+validate:
+    test -f AGENTS.md
+    test -f CLAUDE.md
+    test -f frontier.yaml
+
+status:
+    git status --short

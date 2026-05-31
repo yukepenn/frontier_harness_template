@@ -1,0 +1,26 @@
+project_name: "{{ project_name }}"
+project_slug: "{{ project_slug }}"
+template_version: "{{ template_version }}"
+generated_at: "{{ generated_at }}"
+profile: "{{ profile_name }}"
+default_branch: "{{ profile.default_branch }}"
+primary_language: "{{ profile.primary_language }}"
+automation_lane: "{{ profile.automation_lane }}"
+risk_level: "{{ profile.risk_level }}"
+requires_human_review: {{ profile.requires_human_review }}
+trading_enabled: {{ profile.trading_enabled }}
+broker_enabled: {{ profile.broker_enabled }}
+
+paths:
+  campaigns: campaigns
+  specs: specs
+  handoffs: handoffs
+  reviews: reviews
+  decisions: decisions
+  runs: runs
+  docs: docs
+
+policy:
+  auto_merge: false
+  require_clean_worktree_for_release: true
+  require_validation_notes: true

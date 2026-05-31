@@ -1,0 +1,9 @@
+name: trading_research
+description: "Research-only trading harness for hypotheses, data checks, and offline analysis."
+default_branch: main
+primary_language: python
+automation_lane: supervised
+risk_level: high
+requires_human_review: true
+trading_enabled: true
+broker_enabled: false

@@ -1,0 +1,9 @@
+name: software
+description: "Software engineering harness with source, tests, reviews, and release hygiene."
+default_branch: main
+primary_language: mixed
+automation_lane: supervised
+risk_level: standard
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

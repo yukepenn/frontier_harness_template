@@ -1,0 +1,9 @@
+name: docs_writing
+description: "Documentation harness for authoring, review, publishing, and artifact policy."
+default_branch: main
+primary_language: markdown
+automation_lane: supervised
+risk_level: low
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

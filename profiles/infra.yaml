@@ -1,0 +1,9 @@
+name: infra
+description: "Infrastructure harness for configuration, deployment plans, and change validation."
+default_branch: main
+primary_language: mixed
+automation_lane: human_approved
+risk_level: high
+requires_human_review: true
+trading_enabled: false
+broker_enabled: false

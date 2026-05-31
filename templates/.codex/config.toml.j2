@@ -1,0 +1,13 @@
+[project]
+name = "{{ project_name }}"
+profile = "{{ profile_name }}"
+template_version = "{{ template_version }}"
+
+[workspace]
+root_policy = "repo-local"
+default_branch = "{{ profile.default_branch }}"
+
+[automation]
+lane = "{{ profile.automation_lane }}"
+auto_merge = false
+requires_human_review = {{ profile.requires_human_review }}
