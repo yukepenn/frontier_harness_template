@@ -229,14 +229,36 @@ def test_rendered_claude_settings_use_supported_hook_events(tmp_path: Path) -> N
 
     render_tree(repo_root() / "templates", tmp_path, context)
 
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings_text = (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+    settings = json.loads(settings_text)
     hooks = settings.get("hooks", {})
-    assert {"PreToolUse", "PostToolUse", "Notification", "Stop"} <= set(hooks)
-    assert not {"pre_tool_use", "post_tool_use", "notification", "stop"} & set(hooks)
-    assert hooks["PreToolUse"] == ".claude/hooks/pre-tool-use.sh"
-    assert hooks["PostToolUse"] == ".claude/hooks/post-tool-use.sh"
-    assert hooks["Notification"] == ".claude/hooks/notification.sh"
-    assert hooks["Stop"] == ".claude/hooks/stop-hook.sh"
+    old_hook_keys = {"pre_tool_use", "post_tool_use", "notification", "stop"}
+    expected_commands = {
+        "PreToolUse": ".claude/hooks/pre-tool-use.sh",
+        "PostToolUse": ".claude/hooks/post-tool-use.sh",
+        "Notification": ".claude/hooks/notification.sh",
+        "Stop": ".claude/hooks/stop-hook.sh",
+    }
+    assert set(expected_commands) <= set(hooks)
+    assert not old_hook_keys & set(hooks)
+    for old_hook_key in old_hook_keys:
+        assert f'"{old_hook_key}"' not in settings_text
+    for event_name, expected_command in expected_commands.items():
+        matcher_groups = hooks[event_name]
+        assert isinstance(matcher_groups, list), event_name
+        assert matcher_groups, event_name
+        for matcher_group in matcher_groups:
+            assert isinstance(matcher_group, dict), event_name
+            handlers = matcher_group.get("hooks")
+            assert isinstance(handlers, list), event_name
+            assert handlers, event_name
+        commands = [
+            handler.get("command")
+            for matcher_group in matcher_groups
+            for handler in matcher_group["hooks"]
+            if isinstance(handler, dict) and handler.get("type") == "command"
+        ]
+        assert expected_command in commands
 
 
 def test_rendered_codex_skills_have_frontmatter(tmp_path: Path) -> None:
