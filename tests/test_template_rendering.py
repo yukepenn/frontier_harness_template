@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -99,6 +100,12 @@ EXPECTED_RENDERED_PATHS = [
     "campaigns/000-template/ACCEPTANCE.md",
     "campaigns/000-template/RISK_REGISTER.md",
     "campaigns/000-template/RUNBOOK.md",
+    "campaigns/G005_WORKFLOW2_TOY/GOAL.md",
+    "campaigns/G005_WORKFLOW2_TOY/PHASE_PLAN.md",
+    "campaigns/G005_WORKFLOW2_TOY/campaign.yaml",
+    "campaigns/G005_WORKFLOW2_TOY/ACCEPTANCE.md",
+    "campaigns/G005_WORKFLOW2_TOY/RISK_REGISTER.md",
+    "campaigns/G005_WORKFLOW2_TOY/RUNBOOK.md",
     "specs/README.md",
     "specs/000-template.md",
     "handoffs/README.md",
@@ -138,6 +145,12 @@ CODEX_AGENT_SUPPORTED_FIELDS = {
     "model_reasoning_effort",
     "developer_instructions",
 }
+
+TOY_PHASE_IDS = [
+    "P01_CREATE_TOY_DOC_A",
+    "P02_CREATE_TOY_DOC_B",
+    "P03_CREATE_TOY_SUMMARY",
+]
 
 
 def parse_frontmatter(path: Path) -> dict[str, str]:
@@ -279,6 +292,60 @@ def test_rendered_shell_hooks_are_executable(tmp_path: Path) -> None:
     ]
     for path in executable_paths:
         assert path.stat().st_mode & 0o111, path
+
+
+def test_rendered_workflow2_toy_campaign_runs_locally(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    result = run_command(
+        [
+            "python",
+            "tools/frontier/ralph_driver.py",
+            "run",
+            "--campaign-id",
+            "G005_WORKFLOW2_TOY",
+        ],
+        tmp_path,
+    )
+
+    assert "Completed Workflow 2 toy run" in result.stdout
+    assert (tmp_path / "docs" / "toy_workflow2" / "phase_a.md").is_file()
+    assert (tmp_path / "docs" / "toy_workflow2" / "phase_b.md").is_file()
+    assert (tmp_path / "docs" / "toy_workflow2" / "summary.md").is_file()
+
+    run_dirs = sorted(
+        (tmp_path / "runs").glob("*G005_WORKFLOW2_TOY*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    assert run_dirs
+    latest_run = run_dirs[0]
+    assert (latest_run / "state.json").is_file()
+    assert (latest_run / "events.jsonl").is_file()
+    assert (latest_run / "RUN_SUMMARY.md").is_file()
+
+    state = json.loads((latest_run / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "COMPLETED"
+    assert state["campaign_id"] == "G005_WORKFLOW2_TOY"
+    assert state["external_providers_called"] is False
+    assert state["network_used"] is False
+    assert state["auto_merge_performed"] is False
+
+    for phase_id in TOY_PHASE_IDS:
+        phase_dir = latest_run / "phases" / phase_id
+        assert (phase_dir / "spec.md").is_file()
+        assert (phase_dir / "handoff.md").is_file()
+        assert (phase_dir / "review.md").is_file()
+        verdict_path = phase_dir / "verdict.json"
+        assert verdict_path.is_file()
+        verdict = json.loads(verdict_path.read_text(encoding="utf-8"))
+        assert verdict["verdict"] == "PASS"
+        assert verdict["external_providers_called"] is False
+        assert verdict["network_used"] is False
+        assert verdict["auto_merge_performed"] is False
 
 
 def load_module(path: Path) -> ModuleType:
