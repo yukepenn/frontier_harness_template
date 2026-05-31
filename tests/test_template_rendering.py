@@ -1,10 +1,16 @@
 import importlib.util
+import re
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
 from tools.render_templates import build_context, load_profile, render_tree, repo_root
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 
 EXPECTED_RENDERED_PATHS = [
@@ -124,6 +130,65 @@ EXPECTED_RENDERED_PATHS = [
     "docs/automation_lanes.md",
 ]
 
+CODEX_AGENT_SUPPORTED_FIELDS = {
+    "name",
+    "description",
+    "model",
+    "model_reasoning_effort",
+    "developer_instructions",
+}
+
+
+def parse_frontmatter(path: Path) -> dict[str, str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "---":
+        pytest.fail(f"{path} is missing YAML frontmatter delimited by ---")
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        pytest.fail(f"{path} is missing closing YAML frontmatter delimiter")
+
+    metadata: dict[str, str] = {}
+    for line in lines[1:end]:
+        key, separator, value = line.partition(":")
+        if not separator:
+            pytest.fail(f"{path} has invalid frontmatter line: {line!r}")
+        metadata[key.strip()] = value.strip()
+    return metadata
+
+
+def parse_flat_toml(text: str, path: Path) -> dict[str, str]:
+    if tomllib is not None:
+        return tomllib.loads(text)
+
+    values: dict[str, str] = {}
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator:
+            pytest.fail(f"{path} has invalid TOML line: {line!r}")
+        key = key.strip()
+        value = value.strip()
+        if value.startswith('"""'):
+            parts = [value[3:]]
+            while not parts[-1].endswith('"""'):
+                if index >= len(lines):
+                    pytest.fail(f"{path} has unterminated multiline string for {key}")
+                parts.append(lines[index])
+                index += 1
+            parts[-1] = parts[-1][:-3]
+            values[key] = "\n".join(parts)
+        elif value.startswith('"') and value.endswith('"'):
+            values[key] = value[1:-1]
+        else:
+            values[key] = value
+    return values
+
 
 def test_render_tree_writes_expected_files(tmp_path: Path) -> None:
     profile = load_profile("generic")
@@ -142,6 +207,41 @@ def test_render_tree_writes_expected_files(tmp_path: Path) -> None:
     for relative_path in EXPECTED_RENDERED_PATHS:
         assert (tmp_path / relative_path).exists(), relative_path
     assert not any(path.name.endswith(".j2") for path in tmp_path.rglob("*"))
+
+
+def test_rendered_codex_skills_have_frontmatter(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    skill_paths = sorted((tmp_path / ".codex" / "skills").glob("*/SKILL.md"))
+    assert skill_paths
+    for path in skill_paths:
+        metadata = parse_frontmatter(path)
+        assert metadata.get("name") == path.parent.name
+        assert metadata.get("description")
+
+
+def test_rendered_codex_agents_have_supported_metadata(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    agent_paths = sorted((tmp_path / ".codex" / "agents").glob("*.toml"))
+    assert agent_paths
+    for path in agent_paths:
+        text = path.read_text(encoding="utf-8")
+        metadata = parse_flat_toml(text, path)
+
+        assert "effort =" not in text
+        assert not re.search(r"(?m)^effort\s*=", text)
+        assert set(metadata) <= CODEX_AGENT_SUPPORTED_FIELDS
+        assert metadata.get("name") == path.stem
+        assert metadata.get("description", "").strip()
+        assert metadata.get("developer_instructions", "").strip()
+        assert metadata.get("model_reasoning_effort") in {"high", "medium"}
 
 
 def test_render_tree_refuses_overwrite_without_force(tmp_path: Path) -> None:
