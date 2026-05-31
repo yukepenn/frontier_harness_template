@@ -223,6 +223,22 @@ def test_render_tree_writes_expected_files(tmp_path: Path) -> None:
     assert not any(path.name.endswith(".j2") for path in tmp_path.rglob("*"))
 
 
+def test_rendered_claude_settings_use_supported_hook_events(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    hooks = settings.get("hooks", {})
+    assert {"PreToolUse", "PostToolUse", "Notification", "Stop"} <= set(hooks)
+    assert not {"pre_tool_use", "post_tool_use", "notification", "stop"} & set(hooks)
+    assert hooks["PreToolUse"] == ".claude/hooks/pre-tool-use.sh"
+    assert hooks["PostToolUse"] == ".claude/hooks/post-tool-use.sh"
+    assert hooks["Notification"] == ".claude/hooks/notification.sh"
+    assert hooks["Stop"] == ".claude/hooks/stop-hook.sh"
+
+
 def test_rendered_codex_skills_have_frontmatter(tmp_path: Path) -> None:
     profile = load_profile("generic")
     context = build_context("sample_project", profile)
