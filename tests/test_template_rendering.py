@@ -248,7 +248,7 @@ def test_rendered_doctor_passes_without_local_runs_dir(tmp_path: Path) -> None:
     assert not (tmp_path / "runs").exists()
     result = run_command(["python", "tools/frontier/bootstrap.py", "doctor"], tmp_path)
 
-    assert "Frontier doctor note: runs/ is local-only runtime state" in result.stdout
+    assert "Frontier doctor note: runs/ is local-only runtime state and may be absent." in result.stdout
     assert "Frontier doctor passed." in result.stdout
     assert not (tmp_path / "runs").exists()
 

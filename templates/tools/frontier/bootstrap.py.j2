@@ -22,7 +22,7 @@ def doctor() -> int:
             print(f"- {item}")
         return 1
     if not (ROOT / "runs").exists():
-        print("Frontier doctor note: runs/ is local-only runtime state and may be absent in clean checkouts.")
+        print("Frontier doctor note: runs/ is local-only runtime state and may be absent.")
     print("Frontier doctor passed.")
     return 0
 
