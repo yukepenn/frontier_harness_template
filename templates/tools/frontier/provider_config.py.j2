@@ -149,11 +149,8 @@ def load_provider_config(root: Path | None = None, env: Mapping[str, str] | None
             raise ProviderConfigError("Codex sandbox must be workspace-write, read-only, or danger-full-access.")
 
         env_worktree = _bool_from_env("FRONTIER_WORKTREE_MODE")
-        default_worktree_mode = (
-            bool(workflow2.get("default_worktree_mode", False))
-            if env_worktree is None
-            else env_worktree
-        )
+        configured_worktree = workflow2.get("worktree_mode", workflow2.get("default_worktree_mode", False))
+        default_worktree_mode = bool(configured_worktree) if env_worktree is None else env_worktree
         worktree_root = _resolve_worktree_root(root, os.environ.get("FRONTIER_WORKTREE_ROOT"))
 
         lanes = raw.get("lanes") if isinstance(raw.get("lanes"), dict) else {}

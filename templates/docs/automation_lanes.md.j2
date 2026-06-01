@@ -8,14 +8,30 @@ Human review required: `{{ profile.requires_human_review }}`
 
 ## Green
 
-Low-risk automatic work. Auto PR dry-run is allowed. Real merge requires lane policy plus `FRONTIER_ALLOW_AUTOMERGE=1`.
+Low-risk automatic work. Generated policy enables auto PR and auto-merge, but real merge still requires passing CI, passing verdict/done-check, artifact policy success, branch protection validation, and authenticated `gh`.
 
 ## Yellow
 
-Material engineering or research work. Claude review and CI are required before merge policy can pass. Real merge requires lane policy plus `FRONTIER_ALLOW_AUTOMERGE=1`.
+Material engineering or research work. Claude review is required. `PASS_WITH_WARNINGS` can merge only when lane policy allows it and no critical findings are present.
 
 ## Red
 
-External, destructive, live, production, or broker-adjacent work. Red-lane real merge remains blocked unless `FRONTIER_RED_AUTHORIZED=1`, project scope authorization matches, lane policy permits it, CI is green, and `FRONTIER_ALLOW_AUTOMERGE=1`.
+External, destructive, production, live, or broker-adjacent work. Auto PR can be enabled, but real auto-merge is blocked unless all standard gates pass plus:
 
-Generated defaults are aggressive for local campaign execution but conservative for repository mutation: no real PR creation or automerge occurs without explicit authorization.
+```bash
+FRONTIER_RED_AUTHORIZED=1
+FRONTIER_RED_SCOPE=<matching scope>
+```
+
+If `merge_policy.require_operation_scope_match` is true, the authorization scope must match the phase or configured lane scope.
+
+## Global Controls
+
+```bash
+FRONTIER_CREATE_PR=0          # force PR dry-run/off
+FRONTIER_CREATE_PR=1          # explicit PR creation override
+FRONTIER_MERGE_DRY_RUN=1      # never execute gh pr merge
+FRONTIER_DISABLE_AUTOMERGE=1  # emergency kill switch
+```
+
+STOP always stops before the next phase. BLOCKED, repair exhaustion, branch protection failure, and CI failure stop the run unless a lane explicitly allows the condition.

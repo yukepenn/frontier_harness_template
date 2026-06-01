@@ -13,6 +13,11 @@ from typing import Any
 VALID_VERDICTS = {"PASS", "PASS_WITH_WARNINGS", "REWORK", "BLOCKED"}
 PASSING_VERDICTS = {"PASS", "PASS_WITH_WARNINGS"}
 VERDICT_RE = re.compile(r"^\s*VERDICT\s*:\s*(PASS_WITH_WARNINGS|PASS|REWORK|BLOCKED)\s*$", re.IGNORECASE | re.MULTILINE)
+VALID_DONE_CHECKS = {"PASS", "PASS_WITH_WARNINGS", "REWORK", "BLOCKED"}
+DONE_CHECK_RE = re.compile(
+    r"^\s*DONE_CHECK\s*:\s*(PASS_WITH_WARNINGS|PASS|REWORK|BLOCKED)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,21 @@ class ReviewVerdict:
     required_repairs: list[str]
     warnings: list[str]
     raw_review_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class DoneCheckVerdict:
+    verdict: str
+    findings: list[str]
+    warnings: list[str]
+    raw_path: str | None = None
+
+    @property
+    def passing(self) -> bool:
+        return self.verdict in PASSING_VERDICTS
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -94,6 +114,30 @@ def parse_review_text(text: str, raw_review_path: Path | str | None = None) -> R
         required_repairs=repairs if verdict in {"REWORK", "BLOCKED"} else [],
         warnings=warnings,
         raw_review_path=str(raw_review_path) if raw_review_path else None,
+    )
+
+
+def parse_done_check_text(text: str, raw_path: Path | str | None = None) -> DoneCheckVerdict:
+    matches = [match.group(1).upper() for match in DONE_CHECK_RE.finditer(text)]
+    unique = sorted(set(matches))
+    if len(unique) != 1:
+        return DoneCheckVerdict(
+            verdict="BLOCKED",
+            findings=["Done-check verdict was missing or ambiguous."],
+            warnings=[],
+            raw_path=str(raw_path) if raw_path else None,
+        )
+    verdict = unique[0]
+    bullets = _bullet_lines(text)
+    warnings = _warnings(text)
+    findings = bullets or ([] if verdict in PASSING_VERDICTS else ["Done-check did not include detailed findings."])
+    if verdict == "PASS_WITH_WARNINGS" and not warnings:
+        warnings = ["Done-check passed with warnings but did not enumerate warning bullets."]
+    return DoneCheckVerdict(
+        verdict=verdict,
+        findings=findings,
+        warnings=warnings,
+        raw_path=str(raw_path) if raw_path else None,
     )
 
 

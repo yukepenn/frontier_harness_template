@@ -84,6 +84,42 @@ def test_apply_updates_generic_and_preserves_campaign(tmp_path) -> None:
     assert (target / ".frontier" / "upgrade_reports").is_dir()
 
 
+def test_plan_json_and_report_md_outputs(tmp_path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    render_target(target)
+    (target / "tools/frontier/ralph_driver.py").write_text("# old\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root() / "tools" / "upgrade_frontier.py"),
+            "--target",
+            str(target),
+            "--profile",
+            "generic",
+            "--project-name",
+            "sample_project",
+            "--dry-run",
+            "--plan-json",
+            "upgrade-plan.json",
+            "--report-md",
+            "upgrade-report.md",
+            "--include",
+            "tools/frontier/**",
+        ],
+        cwd=repo_root(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert (target / "upgrade-plan.json").is_file()
+    assert (target / "upgrade-report.md").is_file()
+    assert "tools/frontier/ralph_driver.py" in (target / "upgrade-plan.json").read_text(encoding="utf-8")
+
+
 def test_build_plan_refuses_path_traversal(tmp_path) -> None:
     rendered = tmp_path / "rendered"
     target = tmp_path / "target"
@@ -96,3 +132,37 @@ def test_build_plan_refuses_path_traversal(tmp_path) -> None:
     assert plan[0].path == "README.md"
     with pytest.raises(ValueError):
         ensure_inside(target, target / ".." / "outside.txt")
+
+
+def test_apply_preserves_project_status_and_frontier_yaml(tmp_path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    render_target(target)
+    (target / "ACTIVE_CAMPAIGN.md").write_text("# active\n", encoding="utf-8")
+    (target / "PROJECT_STATUS.md").write_text("# status\n", encoding="utf-8")
+    (target / "PROGRESS.md").write_text("# progress\n", encoding="utf-8")
+    (target / "frontier.yaml").write_text("project: custom\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root() / "tools" / "upgrade_frontier.py"),
+            "--target",
+            str(target),
+            "--profile",
+            "generic",
+            "--project-name",
+            "sample_project",
+            "--apply",
+        ],
+        cwd=repo_root(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert (target / "ACTIVE_CAMPAIGN.md").read_text(encoding="utf-8") == "# active\n"
+    assert (target / "PROJECT_STATUS.md").read_text(encoding="utf-8") == "# status\n"
+    assert (target / "PROGRESS.md").read_text(encoding="utf-8") == "# progress\n"
+    assert (target / "frontier.yaml").read_text(encoding="utf-8") == "project: custom\n"

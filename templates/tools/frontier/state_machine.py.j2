@@ -212,6 +212,7 @@ def new_run_state(
 ) -> dict[str, Any]:
     created_at = utc_now()
     attempts = {str(phase.get("phase_id")): 0 for phase in phases}
+    repair_attempts = {str(phase.get("phase_id")): 0 for phase in phases}
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -225,6 +226,8 @@ def new_run_state(
         "created_at": created_at,
         "updated_at": created_at,
         "attempts": attempts,
+        "repair_attempts": repair_attempts,
+        "last_error": None,
         "provider_mode": provider_mode,
         "lane_policy_snapshot": lane_policy_snapshot or {},
         "last_event_id": 0,

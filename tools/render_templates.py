@@ -10,7 +10,7 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
-TEMPLATE_VERSION = "0.2.0-alpha.1"
+TEMPLATE_VERSION = "0.3.0-rc1"
 VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}")
 
 
