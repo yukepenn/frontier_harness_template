@@ -235,6 +235,17 @@ artifacts:
     - "tests/**"
     - "configs/**"
 
+  placeholder_exceptions:
+    - "**/.gitkeep"
+    - "**/README.md"
+
+  placeholder_dirs:
+    - "data/raw/**"
+    - "data/cache/**"
+    - "data/canonical/**"
+    - "data/factors/**"
+    - "artifacts/raw/**"
+
   forbid_commit:
     - "**/.env"
     - "**/.env.*"
