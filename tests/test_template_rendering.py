@@ -273,6 +273,24 @@ def test_rendered_project_does_not_track_or_require_runs_placeholders(tmp_path: 
     assert "runs/README.md" not in bootstrap
 
 
+def test_rendered_workflow2_prompts_keep_runs_local_only(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    ralph_driver = (tmp_path / "tools" / "frontier" / "ralph_driver.py").read_text(encoding="utf-8")
+    assert "`runs/**` is local-only runtime state." in ralph_driver
+    assert "run_dir artifacts are for local audit only." in ralph_driver
+    assert "run-local `handoff.md` under `runs/<run_id>/...` must never be staged or committed." in ralph_driver
+    assert "Commit-eligible handoff, if needed, must be under `handoffs/{phase_id}.md`" in ralph_driver
+    assert "`runs/.gitkeep`, `runs/README.md`, and `runs/**` must not appear in Allowed Paths." in ralph_driver
+    assert "If a campaign/spec asks for runs placeholders, resolve that as local-only and do not commit it." in ralph_driver
+    assert "Do not stage or commit anything under `runs/`." in ralph_driver
+    assert "Do not stage run-local `handoff.md` under `runs/<run_id>/...`." in ralph_driver
+    assert "Before commit, `git diff --cached --name-only` must contain no `runs/` path." in ralph_driver
+
+
 def test_rendered_claude_settings_use_supported_hook_events(tmp_path: Path) -> None:
     profile = load_profile("generic")
     context = build_context("sample_project", profile)
