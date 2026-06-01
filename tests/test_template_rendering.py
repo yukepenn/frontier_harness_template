@@ -239,6 +239,40 @@ def test_render_tree_writes_expected_files(tmp_path: Path) -> None:
     assert not any(path.name.endswith(".j2") for path in tmp_path.rglob("*"))
 
 
+def test_rendered_doctor_passes_without_local_runs_dir(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    assert not (tmp_path / "runs").exists()
+    result = run_command(["python", "tools/frontier/bootstrap.py", "doctor"], tmp_path)
+
+    assert "Frontier doctor note: runs/ is local-only runtime state" in result.stdout
+    assert "Frontier doctor passed." in result.stdout
+    assert not (tmp_path / "runs").exists()
+
+
+def test_rendered_project_does_not_track_or_require_runs_placeholders(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    written = render_tree(repo_root() / "templates", tmp_path, context)
+
+    relative_paths = {str(path.relative_to(tmp_path)) for path in written}
+    assert "runs/.gitkeep" not in relative_paths
+    assert "runs/README.md" not in relative_paths
+    assert not (tmp_path / "runs").exists()
+
+    bootstrap = (tmp_path / "tools" / "frontier" / "bootstrap.py").read_text(encoding="utf-8")
+    assert (
+        'required = ["AGENTS.md", "CLAUDE.md", "frontier.yaml", '
+        '"campaigns", "specs", "handoffs", "reviews"]'
+    ) in bootstrap
+    assert "runs/.gitkeep" not in bootstrap
+    assert "runs/README.md" not in bootstrap
+
+
 def test_rendered_claude_settings_use_supported_hook_events(tmp_path: Path) -> None:
     profile = load_profile("generic")
     context = build_context("sample_project", profile)
@@ -601,6 +635,9 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
     assert ".frontier/upgrade_reports/**" in forbid_commit
     assert "runs/**" in forbid_commit
     assert "logs/**" in forbid_commit
+    assert "runs/.gitkeep" not in allow_commit
+    assert "runs/README.md" not in allow_commit
+    assert "runs/**" not in placeholder_dirs
 
     for required in [
         "data/raw/**",
