@@ -7,7 +7,7 @@ It renders reusable harness files only. It does not include project business log
 ## What v0.3.0-rc1 Supports
 
 - Provider-wired Workflow2 loops with Claude spec generation, Codex execution, validation, Claude review, Codex repair, semantic done-checks, and campaign done-checks.
-- Official local CLI patterns: `claude -p` and `codex exec --sandbox workspace-write`.
+- Official local CLI patterns with stdin prompt transport: `claude -p` and `codex exec --sandbox workspace-write -`.
 - Mock mode that never calls provider CLIs.
 - GitHub PR creation, existing PR detection, CI polling, branch protection validation, merge gate artifacts, and lane-based auto-merge through `gh`.
 - Explicit curated git staging, commit, and push per phase. The runtime never uses `git add .` or `git add -A`.
