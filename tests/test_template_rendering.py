@@ -132,8 +132,6 @@ EXPECTED_RENDERED_PATHS = [
     "reviews/000-template.md",
     "decisions/README.md",
     "decisions/ADR-000-template.md",
-    "runs/README.md",
-    "runs/.gitkeep",
     "evals/canaries/README.md",
     "evals/canaries/forbidden_git_add_dot/README.md",
     "evals/canaries/forbidden_test_tamper/README.md",
@@ -581,6 +579,7 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
     policy = (tmp_path / "frontier.yaml").read_text(encoding="utf-8")
     allow_commit = yaml_list(policy, "artifacts", "allow_commit")
     placeholder_dirs = yaml_list(policy, "artifacts", "placeholder_dirs")
+    forbid_commit = yaml_list(policy, "artifacts", "forbid_commit")
 
     for required in [
         ".gitignore",
@@ -596,6 +595,9 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
         assert required in allow_commit
     assert "data/**" not in allow_commit
     assert "artifacts/**" not in allow_commit
+    assert ".frontier/upgrade_reports/**" in forbid_commit
+    assert "runs/**" in forbid_commit
+    assert "logs/**" in forbid_commit
 
     for required in [
         "data/raw/**",
@@ -647,11 +649,14 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
         "artifacts/reports/README.md",
     ]
     blocked_artifacts = [
+        ".frontier/upgrade_reports/report.json",
         "data/raw/SPY.parquet",
         "data/cache/cache.sqlite",
         "artifacts/model.pkl",
         "metadata/registry.sqlite",
+        "runs/run1/state.json",
         "runs/local.log",
+        "logs/frontier.log",
         ".env",
         "secrets.json",
     ]
@@ -675,7 +680,11 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
             "**/.env",
             "**/secrets.*",
             "**/data/raw/**",
+            "**/data/cache/**",
             "**/cache/**",
+            ".frontier/upgrade_reports/**",
+            "runs/**",
+            "logs/**",
             "metadata/**",
             "artifacts/**",
             "**/*.parquet",

@@ -14,9 +14,11 @@ from tools.frontier.github_utils import (
     create_pr,
     find_existing_pr,
     inspect_branch_protection,
+    list_pr_diff_files,
     list_pr_checks,
     merge_pr,
     parse_github_remote,
+    view_pr,
     wait_for_ci,
 )
 
@@ -93,6 +95,29 @@ def test_list_pr_checks_uses_stable_supported_fields() -> None:
     fields = command[command.index("--json") + 1]
     assert fields == "name,state,link,bucket,workflow,event,startedAt,completedAt,description"
     assert "conclusion" not in fields
+
+
+def test_view_pr_requests_head_ref_oid_for_resume() -> None:
+    runner = FakeRunner([Result(["gh"], stdout=json.dumps({"number": 3, "state": "OPEN", "headRefOid": "a" * 40}))])
+
+    result = view_pr("3", runner=runner)
+
+    assert result.ok
+    assert result.metadata["pr"]["headRefOid"] == "a" * 40
+    fields = runner.commands[0][runner.commands[0].index("--json") + 1]
+    assert "headRefOid" in fields
+
+
+def test_pr_diff_files_uses_name_only() -> None:
+    runner = FakeRunner([Result(["gh"], stdout="docs/a.md\n")])
+
+    result = list_pr_diff_files("3", runner=runner)
+
+    assert result.ok
+    assert result.metadata["artifact_source"] == "pr_diff"
+    assert result.metadata["files"] == ["docs/a.md"]
+    assert runner.commands[0][:4] == ["gh", "pr", "diff", "3"]
+    assert "--name-only" in runner.commands[0]
 
 
 def test_create_pr_missing_gh_is_blocked(tmp_path, monkeypatch) -> None:

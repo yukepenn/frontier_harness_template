@@ -59,8 +59,7 @@ def classify_provider_nonzero(provider: str, stdout: str, stderr: str, return_co
     if return_code == 0:
         return PROVIDER_OK
     if is_provider_usage_limit(stdout, stderr, return_code):
-        del provider
-        return WAITING_PROVIDER_LIMIT
+        return provider_limit_status(provider)
     return PROVIDER_BLOCKED
 
 

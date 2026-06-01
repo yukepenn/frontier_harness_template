@@ -23,7 +23,8 @@ FORBIDDEN_SUFFIXES = {
     ".pkl",
     ".joblib",
 }
-FORBIDDEN_PARTS = {"node_modules", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", "cache"}
+FORBIDDEN_PARTS = {"node_modules", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", "cache", "logs"}
+FORBIDDEN_PREFIXES = (".frontier/upgrade_reports", "logs", "runs")
 LOCAL_ONLY_PREFIXES = {"data/raw", "raw", "data/cache", "data/canonical", "data/factors", "data/labels", "metadata", "artifacts"}
 PLACEHOLDER_EXCEPTIONS = ("**/.gitkeep", "**/README.md")
 PLACEHOLDER_DIRS = (
@@ -110,6 +111,8 @@ def is_placeholder_exception(path: str) -> bool:
 
 def forbidden(path: str) -> bool:
     clean = normalized(path)
+    if any(clean == prefix or clean.startswith(prefix + "/") for prefix in FORBIDDEN_PREFIXES):
+        return True
     if is_placeholder_exception(clean):
         return False
     parsed = PurePosixPath(clean)

@@ -3,6 +3,8 @@ from __future__ import annotations
 from tools.frontier.command_runner import CommandResult
 from tools.frontier.provider_adapters import (
     PROVIDER_BLOCKED,
+    WAITING_CLAUDE_LIMIT,
+    WAITING_CODEX_LIMIT,
     WAITING_PROVIDER_LIMIT,
     ClaudeProviderAdapter,
     CodexProviderAdapter,
@@ -95,7 +97,7 @@ def test_codex_prompt_uses_stdin_for_large_prompts(tmp_path, monkeypatch) -> Non
     assert sum(len(part) for part in command) < 1000
 
 
-def test_provider_usage_limits_classify_as_waiting_provider_limit() -> None:
+def test_provider_usage_limits_classify_as_waiting_limit_statuses() -> None:
     samples = [
         "usage limit reached",
         "rate limit exceeded",
@@ -107,7 +109,9 @@ def test_provider_usage_limits_classify_as_waiting_provider_limit() -> None:
     ]
 
     for sample in samples:
-        assert classify_provider_nonzero("claude", "", sample, 1) == WAITING_PROVIDER_LIMIT
+        assert classify_provider_nonzero("provider", "", sample, 1) == WAITING_PROVIDER_LIMIT
+        assert classify_provider_nonzero("claude", "", sample, 1) == WAITING_CLAUDE_LIMIT
+        assert classify_provider_nonzero("codex", "", sample, 1) == WAITING_CODEX_LIMIT
 
 
 def test_generic_provider_nonzero_remains_blocked() -> None:

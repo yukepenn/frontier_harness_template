@@ -23,7 +23,7 @@ CONFIG = {
 }
 DATA_PLACEHOLDER_CONFIG = {
     "artifacts": {
-        "allow_commit": ["data/**"],
+        "allow_commit": ["data/**/README.md", "data/**/.gitkeep"],
         "forbid_commit": ["**/data/raw/**", "**/cache/**", "**/*.db", "**/*.parquet"],
         "placeholder_exceptions": ["**/.gitkeep", "**/README.md"],
         "placeholder_dirs": ["data/raw/**", "data/cache/**"],
@@ -179,9 +179,12 @@ def test_artifact_policy_allows_only_configured_local_placeholders() -> None:
         "data/cache/cache.sqlite",
         "artifacts/model.pkl",
         "metadata/registry.sqlite",
+        ".frontier/upgrade_reports/report.json",
         ".env",
         "secrets.json",
+        "runs/run1/state.json",
         "runs/local.log",
+        "logs/frontier.log",
         "notes/README.md",
     ]
 
@@ -199,7 +202,11 @@ def test_artifact_policy_allows_only_configured_local_placeholders() -> None:
             "**/.env",
             "**/secrets.*",
             "**/data/raw/**",
+            "**/data/cache/**",
             "**/cache/**",
+            ".frontier/upgrade_reports/**",
+            "runs/**",
+            "logs/**",
             "metadata/**",
             "artifacts/**",
             "**/*.parquet",
@@ -219,7 +226,10 @@ def test_artifact_policy_allows_only_configured_local_placeholders() -> None:
     assert "data/cache/cache.sqlite" in blocked
     assert "artifacts/model.pkl" in blocked
     assert "metadata/registry.sqlite" in blocked
+    assert ".frontier/upgrade_reports/report.json" in blocked
     assert ".env" in blocked
     assert "secrets.json" in blocked
+    assert "runs/run1/state.json" in blocked
     assert "runs/local.log" in blocked
+    assert "logs/frontier.log" in blocked
     assert "notes/README.md" in blocked

@@ -35,6 +35,7 @@ def test_artifact_guard_allows_explicit_placeholders() -> None:
 
 def test_artifact_guard_blocks_real_raw_cache_and_model_artifacts() -> None:
     blocked = [
+        ".frontier/upgrade_reports/report.json",
         "data/raw/input.csv",
         "data/raw/input.parquet",
         "data/raw/SPY.parquet",
@@ -48,10 +49,12 @@ def test_artifact_guard_blocks_real_raw_cache_and_model_artifacts() -> None:
         "metadata/registry.sqlite",
         ".env",
         "secrets.json",
+        "runs/run1/state.json",
         "state.sqlite",
         "state.db",
         "state.duckdb",
         "runs/local.log",
+        "logs/frontier.log",
         "models/model.onnx",
         "models/model.pt",
         "models/model.pkl",

@@ -46,7 +46,9 @@ from tools.frontier.github_utils import (
     create_pr,
     detect_default_branch,
     inspect_branch_protection,
+    list_pr_diff_files,
     wait_for_ci,
+    view_pr,
     write_branch_protection_artifacts,
     write_ci_status_artifacts,
     write_pr_create_artifacts,
@@ -54,6 +56,8 @@ from tools.frontier.github_utils import (
 from tools.frontier.merge_gate import evaluate_merge_gate, perform_merge, write_merge_gate_artifacts
 from tools.frontier.artifact_policy import curate_commit_paths
 from tools.frontier.provider_adapters import (
+    WAITING_CLAUDE_LIMIT,
+    WAITING_CODEX_LIMIT,
     WAITING_PROVIDER_LIMIT,
     ClaudeProviderAdapter,
     CodexProviderAdapter,
@@ -98,7 +102,7 @@ GATE_BLOCKED_STATUSES = {
     CI_BLOCKED,
     MERGE_GATE_BLOCKED,
 }
-PROVIDER_WAITING_STATUSES = {WAITING_PROVIDER_LIMIT, "WAITING_CLAUDE_LIMIT", "WAITING_CODEX_LIMIT"}
+PROVIDER_WAITING_STATUSES = {WAITING_PROVIDER_LIMIT, WAITING_CLAUDE_LIMIT, WAITING_CODEX_LIMIT}
 PROVIDER_RESUME_STATUS_BY_STAGE = {
     "spec": "PENDING",
     "execute": "SPEC_READY",
@@ -1123,11 +1127,12 @@ def write_provider_limit_artifacts(
     stage: str,
     result: CommandResult,
     safe_resume_stage: str,
+    status: str,
 ) -> None:
     phase_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": "frontier-provider-limit-v1",
-        "status": WAITING_PROVIDER_LIMIT,
+        "status": status,
         "provider": provider,
         "stage": stage,
         "safe_resume_stage": safe_resume_stage,
@@ -1141,7 +1146,7 @@ def write_provider_limit_artifacts(
     lines = [
         "# Provider Limit",
         "",
-        f"Status: {WAITING_PROVIDER_LIMIT}",
+        f"Status: {status}",
         f"Provider: {provider}",
         f"Stage: {stage}",
         f"Safe resume stage: {safe_resume_stage}",
@@ -1186,6 +1191,7 @@ def wait_provider_limit(
     provider: str,
     stage: str,
     result: CommandResult,
+    status: str,
 ) -> None:
     safe_resume_stage = provider_limit_safe_resume_stage(stage)
     phase_dir = provider_phase_dir(run_dir, phase)
@@ -1195,17 +1201,19 @@ def wait_provider_limit(
         stage=stage,
         result=result,
         safe_resume_stage=safe_resume_stage,
+        status=status,
     )
-    set_provider_phase_status(phase, WAITING_PROVIDER_LIMIT)
+    set_provider_phase_status(phase, status)
     phase["status_reason"] = f"{provider} usage limit reached during {stage}."
     phase["provider_limit"] = {
+        "status": status,
         "provider": provider,
         "stage": stage,
         "safe_resume_stage": safe_resume_stage,
         "return_code": result.returncode,
     }
     phase["resume_stage"] = safe_resume_stage
-    state["status"] = WAITING_PROVIDER_LIMIT
+    state["status"] = status
     state["stop_requested"] = True
     state["current_phase_id"] = phase["phase_id"]
     state["current_stage"] = safe_resume_stage
@@ -1239,10 +1247,11 @@ def wait_campaign_provider_limit(
     provider: str,
     stage: str,
     result: CommandResult,
+    status: str,
 ) -> None:
     payload = {
         "schema_version": "frontier-provider-limit-v1",
-        "status": WAITING_PROVIDER_LIMIT,
+        "status": status,
         "provider": provider,
         "stage": stage,
         "safe_resume_stage": stage,
@@ -1258,7 +1267,7 @@ def wait_campaign_provider_limit(
             [
                 "# Provider Limit",
                 "",
-                f"Status: {WAITING_PROVIDER_LIMIT}",
+                f"Status: {status}",
                 f"Provider: {provider}",
                 f"Stage: {stage}",
                 f"Return code: {result.returncode}",
@@ -1268,7 +1277,7 @@ def wait_campaign_provider_limit(
         + "\n",
         encoding="utf-8",
     )
-    state["status"] = WAITING_PROVIDER_LIMIT
+    state["status"] = status
     state["stop_requested"] = True
     append_event(run_dir, state, "PROVIDER_LIMIT", provider=provider, stage=stage)
     write_provider_stop(run_dir, state, f"{provider} usage limit reached during {stage}.")
@@ -1286,8 +1295,8 @@ def handle_provider_nonzero(
     result: CommandResult,
 ) -> bool:
     status = classify_provider_nonzero(provider, result.stdout, result.stderr, result.returncode)
-    if status == WAITING_PROVIDER_LIMIT:
-        wait_provider_limit(run_dir, state, phase, provider=provider, stage=stage, result=result)
+    if status in PROVIDER_WAITING_STATUSES:
+        wait_provider_limit(run_dir, state, phase, provider=provider, stage=stage, result=result, status=status)
         return True
     return False
 
@@ -2330,7 +2339,7 @@ def find_state_phase(state: dict[str, Any], phase_id: str) -> dict[str, Any]:
     raise ValueError(f"Run state is missing phase {phase_id}.")
 
 
-def resume_artifact_policy(config: dict[str, Any], changed: list[str]) -> dict[str, Any]:
+def resume_artifact_policy(config: dict[str, Any], changed: list[str], *, artifact_source: str) -> dict[str, Any]:
     artifacts = config.get("artifacts") if isinstance(config.get("artifacts"), dict) else {}
     allow_patterns = list(artifacts.get("allow_commit", [])) if isinstance(artifacts, dict) else []
     forbid_patterns = list(artifacts.get("forbid_commit", [])) if isinstance(artifacts, dict) else []
@@ -2347,7 +2356,103 @@ def resume_artifact_policy(config: dict[str, Any], changed: list[str]) -> dict[s
         placeholder_exceptions=placeholder_exceptions,
         placeholder_dirs=placeholder_dirs,
     )
-    return {"ok": not blocked, "changed_files": changed, "allowed_files": allowed, "blocked_files": blocked}
+    return {
+        "ok": not blocked,
+        "artifact_source": artifact_source,
+        "changed_files": changed,
+        "allowed_files": allowed,
+        "blocked_files": blocked,
+    }
+
+
+def recorded_phase_commit_sha(phase_dir: Path, phase: dict[str, Any], state: dict[str, Any]) -> str | None:
+    git_phase = read_json_if_exists(phase_dir / "git_phase.json")
+    candidates = [
+        phase.get("commit_sha"),
+        state.get("commit_sha"),
+        read_stripped_if_exists(phase_dir / "commit_sha.txt"),
+        git_phase.get("commit_sha"),
+    ]
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return None
+
+
+def resume_head_mismatch_allowed() -> bool:
+    return os.environ.get("FRONTIER_ALLOW_RESUME_HEAD_MISMATCH") == "1"
+
+
+def pr_metadata(result: GitHubResult) -> dict[str, Any]:
+    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+    data = metadata.get("pr")
+    return data if isinstance(data, dict) else {}
+
+
+def pr_is_merged(data: dict[str, Any]) -> bool:
+    return str(data.get("state") or "").upper() == "MERGED"
+
+
+def validate_resume_pr_head(
+    run_dir: Path,
+    state: dict[str, Any],
+    phase: dict[str, Any],
+    phase_dir: Path,
+    *,
+    pr_data: dict[str, Any],
+) -> bool:
+    expected = recorded_phase_commit_sha(phase_dir, phase, state)
+    actual = str(pr_data.get("headRefOid") or "").strip()
+    match = True
+    reason = ""
+    if expected:
+        match = bool(actual) and actual.lower() == expected.lower()
+        if not match:
+            reason = (
+                "RESUME_PRECONDITION_FAILED: PR headRefOid does not match recorded phase commit_sha. "
+                "Set FRONTIER_ALLOW_RESUME_HEAD_MISMATCH=1 only after manually verifying the PR head."
+            )
+    payload = {
+        "status": "PASS" if match else "MISMATCH",
+        "expected_commit_sha": expected,
+        "headRefOid": actual,
+        "override_allowed": resume_head_mismatch_allowed(),
+        "recorded_at": utc_now(),
+    }
+    write_json(phase_dir / "resume_head_check.json", payload)
+    if match:
+        return True
+    if resume_head_mismatch_allowed():
+        append_event(
+            run_dir,
+            state,
+            "RESUME_HEAD_MISMATCH_OVERRIDDEN",
+            phase_id=phase["phase_id"],
+            expected_commit_sha=expected,
+            headRefOid=actual,
+        )
+        return True
+    write_resume_precondition_failure(run_dir, state, phase, reason, precondition=payload)
+    return False
+
+
+def finish_targeted_resume(
+    run_dir: Path,
+    state: dict[str, Any],
+    phase: dict[str, Any],
+    *,
+    verdict: str,
+    from_stage: str,
+    reason: str | None = None,
+) -> None:
+    note = reason or f"Targeted resume from {from_stage} completed for {phase['phase_id']}; no later phases were started."
+    finish_provider_phase(run_dir, state, phase, verdict, event="RESUME_PHASE_PASS", reason=f"Resumed from {from_stage}.")
+    state["status"] = "STOPPED"
+    state["stop_requested"] = True
+    write_provider_stop(run_dir, state, note)
+    write_state(run_dir, state)
+    write_provider_summary(run_dir, state, note)
 
 
 def write_resume_precondition_failure(
@@ -2418,14 +2523,69 @@ def run_deterministic_resume_gates(
         )
         return False
 
-    changed = changed_files_from_artifacts(phase_dir)
-    artifact_result = resume_artifact_policy(config, changed)
+    if mock_enabled:
+        changed = changed_files_from_artifacts(phase_dir)
+        artifact_source = "run_artifacts_mock"
+    else:
+        state["github_operations_performed"] = True
+        state["network_used"] = True
+        pr_view_result = view_pr(pr_number, root=execution_root)
+        write_github_result(phase_dir / "resume_pr_view.json", pr_view_result)
+        if pr_view_result.blocked:
+            write_resume_precondition_failure(
+                run_dir,
+                state,
+                phase,
+                "RESUME_PRECONDITION_FAILED: live PR metadata could not be read.",
+                precondition=pr_view_result.to_dict(),
+            )
+            return False
+        pr_data = pr_metadata(pr_view_result)
+        if pr_is_merged(pr_data):
+            phase["pr_number"] = pr_number
+            phase["merged"] = True
+            record_stage_checkpoint(
+                run_dir,
+                state,
+                phase,
+                "merge",
+                details={"resume": True, "pr_number": pr_number, "already_merged": True},
+            )
+            append_event(run_dir, state, "RESUME_PR_ALREADY_MERGED", phase_id=phase["phase_id"], pr_number=pr_number)
+            finish_targeted_resume(
+                run_dir,
+                state,
+                phase,
+                verdict=verdict,
+                from_stage=from_stage,
+                reason=f"PR {pr_number} is already merged; marked {phase['phase_id']} complete.",
+            )
+            return True
+        if not validate_resume_pr_head(run_dir, state, phase, phase_dir, pr_data=pr_data):
+            return False
+        pr_diff_result = list_pr_diff_files(pr_number, root=execution_root)
+        write_github_result(phase_dir / "resume_pr_diff.json", pr_diff_result)
+        if pr_diff_result.blocked:
+            write_resume_precondition_failure(
+                run_dir,
+                state,
+                phase,
+                "RESUME_PRECONDITION_FAILED: live PR diff could not be read.",
+                precondition=pr_diff_result.to_dict(),
+            )
+            return False
+        files = pr_diff_result.metadata.get("files") if isinstance(pr_diff_result.metadata, dict) else []
+        changed = [str(item) for item in files] if isinstance(files, list) else []
+        artifact_source = "pr_diff"
+
+    artifact_result = resume_artifact_policy(config, changed, artifact_source=artifact_source)
     write_json(phase_dir / "resume_artifact_policy.json", artifact_result)
     append_event(
         run_dir,
         state,
         "RESUME_ARTIFACT_POLICY",
         phase_id=phase["phase_id"],
+        artifact_source=artifact_source,
         changed_files=len(changed),
         blocked_files=artifact_result["blocked_files"],
     )
@@ -2436,8 +2596,6 @@ def run_deterministic_resume_gates(
             required_checks=required_checks,
         )
     else:
-        state["github_operations_performed"] = True
-        state["network_used"] = True
         ci_result = wait_for_ci(
             pr_number,
             timeout_seconds=int(github_config.get("ci_timeout_seconds", 900)),
@@ -2567,20 +2725,7 @@ def run_deterministic_resume_gates(
             )
             return False
 
-    finish_provider_phase(run_dir, state, phase, verdict, event="RESUME_PHASE_PASS", reason=f"Resumed from {from_stage}.")
-    state["status"] = "STOPPED"
-    state["stop_requested"] = True
-    write_provider_stop(
-        run_dir,
-        state,
-        f"Targeted resume from {from_stage} completed for {phase['phase_id']}; no later phases were started.",
-    )
-    write_state(run_dir, state)
-    write_provider_summary(
-        run_dir,
-        state,
-        f"Targeted resume from {from_stage} completed for {phase['phase_id']}; no later phases were started.",
-    )
+    finish_targeted_resume(run_dir, state, phase, verdict=verdict, from_stage=from_stage)
     return True
 
 
@@ -2977,7 +3122,7 @@ def run_provider_repair_loop(
                     stage="repair",
                     result=result,
                 ):
-                    return WAITING_PROVIDER_LIMIT
+                    return str(phase.get("status") or WAITING_PROVIDER_LIMIT)
                 write_provider_verdict(phase_dir, state, phase, "BLOCKED", source="repair_error")
                 return "BLOCKED"
         (attempt_dir / "repair_output.md").write_text(repair_text, encoding="utf-8")
@@ -3024,7 +3169,7 @@ def run_provider_repair_loop(
                     stage="repair_review",
                     result=result,
                 ):
-                    return WAITING_PROVIDER_LIMIT
+                    return str(phase.get("status") or WAITING_PROVIDER_LIMIT)
                 (attempt_dir / "repair_review.md").write_text(repaired_review_text, encoding="utf-8")
                 write_provider_verdict(phase_dir, state, phase, "BLOCKED", source="repair_review_error")
                 return "BLOCKED"
@@ -3072,15 +3217,17 @@ def run_campaign_done_check(run_dir: Path, state: dict[str, Any]) -> str:
         result = claude_headless(prompt)
         text = result.stdout if result.returncode == 0 else command_block(result)
         if result.returncode != 0:
-            if classify_provider_nonzero("claude", result.stdout, result.stderr, result.returncode) == WAITING_PROVIDER_LIMIT:
+            status = classify_provider_nonzero("claude", result.stdout, result.stderr, result.returncode)
+            if status in PROVIDER_WAITING_STATUSES:
                 wait_campaign_provider_limit(
                     run_dir,
                     state,
                     provider="claude",
                     stage="campaign_done_check",
                     result=result,
+                    status=status,
                 )
-                return WAITING_PROVIDER_LIMIT
+                return status
             text = text + "\n\nDONE_CHECK: BLOCKED\n"
     path = run_dir / "campaign_done_check.md"
     path.write_text(text, encoding="utf-8")

@@ -140,6 +140,10 @@ def _run_gh(
     return _runner(root, runner).run(command, timeout_seconds=timeout_seconds)
 
 
+def _with_repo(command: list[str], repo: str) -> list[str]:
+    return [*command, "--repo", repo]
+
+
 def gh_auth_status(*, root: Path = ROOT, runner: CommandRunner | None = None) -> GitHubResult:
     command = ["gh", "auth", "status"]
     result = _run_gh(command, root=root, runner=runner, timeout_seconds=60)
@@ -216,6 +220,80 @@ def find_existing_pr(
         return None
     first = data[0]
     return first if isinstance(first, dict) else None
+
+
+def view_pr(
+    pr: str | int,
+    *,
+    root: Path = ROOT,
+    runner: CommandRunner | None = None,
+    repo: str | None = None,
+) -> GitHubResult:
+    fields = "number,state,headRefOid,headRefName,baseRefName,isDraft,url"
+    base_command = ["gh", "pr", "view", str(pr), "--json", fields]
+    command = _with_repo(base_command, repo) if repo else base_command
+    result = _run_gh(command, root=root, runner=runner, timeout_seconds=120)
+    metadata: dict[str, Any] = {}
+    if result.return_code != 0 and repo is None:
+        detected_repo = detect_repo_remote(root)
+        if detected_repo:
+            retry_command = _with_repo(base_command, detected_repo)
+            retry = _run_gh(retry_command, root=root, runner=runner, timeout_seconds=120)
+            metadata["repo"] = detected_repo
+            result = retry
+            command = retry_command
+    if result.return_code == 0:
+        try:
+            data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            data = {}
+        if isinstance(data, dict):
+            metadata["pr"] = data
+    return GitHubResult(
+        "view_pr",
+        False,
+        command,
+        result.return_code,
+        result.stdout,
+        result.stderr,
+        blocked=result.return_code != 0,
+        instructions=None if result.return_code == 0 else "Inspect `gh pr view` output and resume after the PR is readable.",
+        metadata=metadata,
+    )
+
+
+def list_pr_diff_files(
+    pr: str | int,
+    *,
+    root: Path = ROOT,
+    runner: CommandRunner | None = None,
+    repo: str | None = None,
+) -> GitHubResult:
+    base_command = ["gh", "pr", "diff", str(pr), "--name-only"]
+    command = _with_repo(base_command, repo) if repo else base_command
+    result = _run_gh(command, root=root, runner=runner, timeout_seconds=120)
+    metadata: dict[str, Any] = {"artifact_source": "pr_diff"}
+    if result.return_code != 0 and repo is None:
+        detected_repo = detect_repo_remote(root)
+        if detected_repo:
+            retry_command = _with_repo(base_command, detected_repo)
+            retry = _run_gh(retry_command, root=root, runner=runner, timeout_seconds=120)
+            metadata["repo"] = detected_repo
+            result = retry
+            command = retry_command
+    if result.return_code == 0:
+        metadata["files"] = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return GitHubResult(
+        "pr_diff",
+        False,
+        command,
+        result.return_code,
+        result.stdout,
+        result.stderr,
+        blocked=result.return_code != 0,
+        instructions=None if result.return_code == 0 else "Inspect `gh pr diff --name-only` output and resume after the PR diff is readable.",
+        metadata=metadata,
+    )
 
 
 def _metadata(
