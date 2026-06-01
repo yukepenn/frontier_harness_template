@@ -1,7 +1,5 @@
 # Validation
 
-Document standard validation commands and when to use them.
-
 Default commands:
 
 ```bash
@@ -11,6 +9,17 @@ python tools/verify.py --typecheck
 python tools/verify.py --test
 python tools/verify.py --all
 python tools/hooks/canary_runner.py
+just frontier-doctor
+just verify-canaries
+python tools/verify.py --artifacts
 ```
 
-Record command output in handoffs or reviews when validation informs a decision.
+Workflow2 smoke validation:
+
+```bash
+FRONTIER_MOCK_PROVIDERS=1 FRONTIER_MAX_PHASES=1 just frontier-run-campaign G005_WORKFLOW2_TOY
+```
+
+Generated CI compiles tools/tests, runs pytest when tests exist, runs frontier doctor, runs canaries, and checks artifact policy. It does not fail solely because project tests are absent.
+
+Record relevant command output in handoffs or reviews when validation informs a decision.

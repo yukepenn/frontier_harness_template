@@ -1,23 +1,29 @@
-# Frontier Harness Generic v3.0
+# Frontier Harness Template
 
-Frontier Harness Generic v3.0 is a WSL2-primary, repo-native, Ralph-driven, Codex-executed, Claude-reviewed, Git-memory autonomous engineering harness template.
+This repository is the source for Frontier Harness `0.2.0-alpha.1`: a generic, repo-native runtime template for campaign-driven engineering work.
 
-Every serious project gets the same bootstrap harness: `AGENTS.md` constitution, `CLAUDE.md` import layer, `frontier.yaml` automation control plane, campaign contracts, phase specs, Codex execution, Claude review, Ralph strict loop scaffolding, run ledgers, CI/automerge scaffolding, and reusable project profiles.
+It renders reusable harness files only. It does not include project business logic, broker integrations, live trading, paper trading, production deployment, real auto-merge defaults, or secret handling beyond local guards and scans.
 
-This repository is the template source. It is not a business project and does not include broker integrations, live trading, paper trading, provider API orchestration, or a production auto-merge implementation.
+## What v0.2 Supports
 
-## What It Generates
+- Generic bootstrap profiles for new repositories.
+- Provider-wired local Workflow2 campaign runs with mock, Claude, and Codex adapters.
+- Claude headless calls through `claude -p`.
+- Codex non-interactive editable calls through `codex exec --sandbox workspace-write`.
+- Formal Workflow2 phase statuses and structured verdict parsing.
+- Safe worktree branch/path planning, with no worktree mode as the safer default.
+- GitHub PR/CI/merge gate dry-runs through `gh`-style helpers.
+- Real negative canaries and hook guards for secrets, artifacts, broad staging, test tamper, destructive commands, boundary escapes, raw data, and scope drift.
+- Safe upgrade/diff tooling for syncing generic harness files into existing projects.
 
-- `AGENTS.md` and `CLAUDE.md` operating instructions
-- `frontier.yaml` harness metadata and automation lanes
-- Codex and Claude skill and agent scaffolds
-- Claude hook scaffolds
-- campaign, spec, handoff, review, decision, run, and docs directories
-- eval/canary directories
-- git hooks, pull request template, and CI/automerge/nightly audit workflow scaffolds
-- status and progress tracking docs
+## What Remains Dry-Run Or Opt-In
 
-## Quick Start
+- PR creation is dry-run unless `FRONTIER_CREATE_PR=1`.
+- Auto-merge is dry-run unless `FRONTIER_ALLOW_AUTOMERGE=1` and lane policy explicitly allows it.
+- Red-lane merge paths require `FRONTIER_RED_AUTHORIZED=1` plus project-scoped authorization.
+- Worktree mode is implemented, but generated projects default to no-worktree unless config, env, or CLI enables it.
+
+## Bootstrap
 
 ```bash
 python tools/bootstrap_frontier.py \
@@ -27,27 +33,24 @@ python tools/bootstrap_frontier.py \
   --force
 ```
 
-Profiles live in `profiles/`. Template files live in `templates/`. Files ending in `.j2` are rendered with a small standard-library renderer; other files are copied as-is.
+Existing target files are not overwritten unless `--force` is passed.
 
-## Profiles
+## Upgrade Existing Projects
 
-- `generic`
-- `software`
-- `app_product`
-- `research`
-- `trading_research`
-- `trading_broker`
-- `data_pipeline`
-- `docs_writing`
-- `infra`
+```bash
+python tools/upgrade_frontier.py --target <repo> --profile <profile> --project-name <name> --dry-run
+python tools/upgrade_frontier.py --target <repo> --profile <profile> --project-name <name> --apply
+python tools/upgrade_frontier.py --target <repo> --profile <profile> --project-name <name> --apply --force-project-files
+```
 
-The trading profiles are harness profiles only. This template does not integrate with brokers, trading systems, or live execution.
+The upgrade tool renders to a temp directory, classifies files, updates generic harness files on `--apply`, and preserves project-specific files by default.
 
-## Development
+## Development Validation
 
 ```bash
 python -m compileall tools tests
 python -m pytest
+python tools/bootstrap_frontier.py --target /tmp/frontier_sample_project --profile generic --project-name sample_project --force
 ```
 
-The bootstrap command refuses to overwrite existing files unless `--force` is passed and validates that rendered paths remain inside the requested target directory.
+Generated projects should also pass `python -m compileall tools tests`, `python -m pytest`, `just frontier-doctor`, `just verify-canaries`, a mock one-phase Workflow2 run, and artifact verification.

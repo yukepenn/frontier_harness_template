@@ -1,19 +1,148 @@
-"""GitHub helper scaffold.
-
-This module intentionally avoids live GitHub API calls until project-specific
-credentials, permissions, and merge policy are implemented.
-"""
+"""GitHub CLI helpers with dry-run defaults."""
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import re
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.frontier.command_runner import CommandRunner
+from tools.frontier.git_utils import current_branch, remote_url
+
+
+GITHUB_RE = re.compile(r"(?:github.com[:/])([^/]+)/([^/.]+)(?:\.git)?$")
+
+
+@dataclass(frozen=True)
+class GitHubResult:
+    action: str
+    dry_run: bool
+    command: list[str]
+    return_code: int = 0
+    stdout: str = ""
+    stderr: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.return_code == 0
+
+
+def parse_github_remote(url: str | None) -> tuple[str, str] | None:
+    if not url:
+        return None
+    match = GITHUB_RE.search(url)
+    if not match:
+        return None
+    return match.group(1), match.group(2)
+
+
+def detect_repo_remote(root: Path = ROOT) -> str | None:
+    parsed = parse_github_remote(remote_url(root))
+    if parsed is None:
+        return None
+    return "/".join(parsed)
+
+
+def create_pr(
+    *,
+    title: str,
+    body: str,
+    base: str,
+    head: str | None = None,
+    root: Path = ROOT,
+    dry_run: bool = True,
+    runner: CommandRunner | None = None,
+) -> GitHubResult:
+    head = head or current_branch(root)
+    command = ["gh", "pr", "create", "--base", base, "--head", head, "--title", title, "--body", body]
+    if dry_run or os.environ.get("FRONTIER_CREATE_PR") != "1":
+        return GitHubResult("create_pr", True, command)
+    result = (runner or CommandRunner(root)).run(command, timeout_seconds=300)
+    return GitHubResult("create_pr", False, command, result.return_code, result.stdout, result.stderr)
+
+
+def get_pr_checks(pr: str, *, root: Path = ROOT, runner: CommandRunner | None = None) -> list[dict[str, Any]]:
+    command = ["gh", "pr", "checks", pr, "--json", "name,state,conclusion,link"]
+    result = (runner or CommandRunner(root)).run(command, timeout_seconds=120)
+    if result.return_code != 0:
+        return [{"name": "gh pr checks", "state": "ERROR", "conclusion": "failure", "stderr": result.stderr}]
+    try:
+        data = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return [{"name": "gh pr checks", "state": "ERROR", "conclusion": "failure", "stdout": result.stdout}]
+    return data if isinstance(data, list) else []
+
+
+def checks_green(checks: list[dict[str, Any]]) -> bool:
+    if not checks:
+        return False
+    passing = {"success", "neutral", "skipped"}
+    for check in checks:
+        conclusion = str(check.get("conclusion") or check.get("state") or "").lower()
+        if conclusion not in passing:
+            return False
+    return True
+
+
+def wait_for_ci(
+    pr: str,
+    *,
+    timeout_seconds: int = 900,
+    poll_seconds: int = 15,
+    root: Path = ROOT,
+    runner: CommandRunner | None = None,
+) -> list[dict[str, Any]]:
+    deadline = time.monotonic() + timeout_seconds
+    last_checks: list[dict[str, Any]] = []
+    while time.monotonic() <= deadline:
+        last_checks = get_pr_checks(pr, root=root, runner=runner)
+        states = {str(check.get("state", "")).upper() for check in last_checks}
+        if last_checks and not (states & {"PENDING", "IN_PROGRESS", "QUEUED", "EXPECTED"}):
+            return last_checks
+        time.sleep(poll_seconds)
+    return last_checks
+
+
+def merge_pr(
+    pr: str,
+    *,
+    method: str = "squash",
+    root: Path = ROOT,
+    dry_run: bool = True,
+    runner: CommandRunner | None = None,
+) -> GitHubResult:
+    command = ["gh", "pr", "merge", pr, f"--{method}", "--delete-branch"]
+    if dry_run or os.environ.get("FRONTIER_ALLOW_AUTOMERGE") != "1":
+        return GitHubResult("merge_pr", True, command)
+    result = (runner or CommandRunner(root)).run(command, timeout_seconds=300)
+    return GitHubResult("merge_pr", False, command, result.return_code, result.stdout, result.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="GitHub integration scaffold.")
+    parser = argparse.ArgumentParser(description="GitHub dry-run utilities for Frontier.")
+    parser.add_argument("--detect-repo", action="store_true")
     parser.add_argument("--preview-pr", action="store_true")
-    parser.parse_args(argv)
-    print("GitHub integration scaffold: no API call was made.")
+    parser.add_argument("--base", default="main")
+    parser.add_argument("--title", default="Frontier automated PR")
+    args = parser.parse_args(argv)
+    if args.detect_repo:
+        print(detect_repo_remote(ROOT) or "")
+        return 0
+    if args.preview_pr:
+        result = create_pr(title=args.title, body="Dry-run preview.", base=args.base, dry_run=True)
+        print(json.dumps(result.__dict__, indent=2, sort_keys=True))
+        return 0
+    parser.print_help()
     return 0
 
 

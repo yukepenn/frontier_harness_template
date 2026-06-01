@@ -1,20 +1,28 @@
-"""Preview future template drift checks.
-
-G001 keeps this command importable and documented. A later goal can compare a
-rendered template plan with an existing target repository.
-"""
+"""Diff a target repo against the rendered Frontier Harness template."""
 
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+try:
+    from upgrade_frontier import build_plan, render_temp, report
+except ModuleNotFoundError:
+    from tools.upgrade_frontier import build_plan, render_temp, report
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="TODO: diff a target repo against this template.")
-    parser.add_argument("--target", help="Target repo to inspect.")
-    parser.add_argument("--profile", default="generic", help="Profile to compare.")
-    parser.parse_args(argv)
-    print("TODO: template diffing is not implemented in G001.")
+    parser = argparse.ArgumentParser(description="Preview template drift for a target repo.")
+    parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--profile", default="generic")
+    parser.add_argument("--project-name", required=True)
+    args = parser.parse_args(argv)
+
+    tmp, rendered = render_temp(args.profile, args.project_name)
+    try:
+        print(report(build_plan(rendered, args.target.resolve())), end="")
+    finally:
+        tmp.cleanup()
     return 0
 
 

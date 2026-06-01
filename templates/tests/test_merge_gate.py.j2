@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from tools.frontier.merge_gate import evaluate_merge_gate
+
+
+CONFIG = {
+    "lanes": {
+        "green": {"auto_merge": True, "max_changed_files": 10, "merge_policy": {"allow_pass_with_warnings": True}},
+        "yellow": {"auto_merge": True, "max_changed_files": 10, "merge_policy": {"allow_pass_with_warnings": True}},
+        "red": {"auto_merge": False, "can_auto_merge_when_authorized": True, "merge_policy": {"allow_pass_with_warnings": False}},
+    }
+}
+
+
+def test_merge_gate_pass_green_ci_green_dry_run() -> None:
+    result = evaluate_merge_gate(
+        campaign_id="C1",
+        phase_id="P1",
+        lane="green",
+        verdict="PASS",
+        ci_status="success",
+        config=CONFIG,
+        dry_run=True,
+    )
+
+    assert result.status == "PASS"
+    assert result.merge_allowed is False
+
+
+def test_merge_gate_blocks_failed_ci() -> None:
+    result = evaluate_merge_gate(
+        campaign_id="C1",
+        phase_id="P1",
+        lane="green",
+        verdict="PASS",
+        ci_status="failure",
+        config=CONFIG,
+    )
+
+    assert result.status == "BLOCKED"
+
+
+def test_merge_gate_blocks_blocked_verdict() -> None:
+    result = evaluate_merge_gate(
+        campaign_id="C1",
+        phase_id="P1",
+        lane="green",
+        verdict="BLOCKED",
+        ci_status="success",
+        config=CONFIG,
+    )
+
+    assert result.status == "BLOCKED"
+
+
+def test_merge_gate_blocks_red_without_authorization() -> None:
+    result = evaluate_merge_gate(
+        campaign_id="C1",
+        phase_id="P1",
+        lane="red",
+        verdict="PASS",
+        ci_status="success",
+        config=CONFIG,
+        env={},
+    )
+
+    assert result.status == "BLOCKED"
