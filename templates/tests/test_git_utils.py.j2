@@ -181,6 +181,7 @@ def test_artifact_policy_allows_only_configured_local_placeholders() -> None:
         "metadata/registry.sqlite",
         ".env",
         "secrets.json",
+        "runs/local.log",
         "notes/README.md",
     ]
 
@@ -220,4 +221,5 @@ def test_artifact_policy_allows_only_configured_local_placeholders() -> None:
     assert "metadata/registry.sqlite" in blocked
     assert ".env" in blocked
     assert "secrets.json" in blocked
+    assert "runs/local.log" in blocked
     assert "notes/README.md" in blocked

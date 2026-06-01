@@ -70,6 +70,7 @@ EXPECTED_RENDERED_PATHS = [
     "tools/frontier/phase.py",
     "tools/frontier/campaign.py",
     "tools/frontier/ralph_driver.py",
+    "tools/frontier/resume.py",
     "tools/frontier/acceptance.py",
     "tools/frontier/state_machine.py",
     "tools/frontier/worktree_manager.py",
@@ -416,6 +417,9 @@ def test_rendered_provider_wired_runtime_and_ci_are_present(tmp_path: Path) -> N
     assert (tmp_path / "tests" / "test_ralph_driver.py").is_file()
     assert "ralph_frontier_provider_wired_mvc_v1" in driver
     assert "def run_provider_wired_campaign" in driver
+    assert "def resume_provider_wired_stage" in driver
+    assert "--no-provider-replay" in driver
+    assert "FRONTIER_RESUME_RUN" in driver
     assert "def run_ledger_only_campaign" in driver
     assert ("ALPHA" + "_SYSTEM_V1") not in driver
     assert ("alpha" + "_system") not in driver
@@ -427,6 +431,9 @@ def test_rendered_provider_wired_runtime_and_ci_are_present(tmp_path: Path) -> N
     assert "FRONTIER_MAX_PHASES=1" not in run_campaign
     assert "--provider-wired" in run_next
     assert "FRONTIER_MAX_PHASES=1" in run_next
+    resume_campaign = recipe_body(justfile, "frontier-resume-campaign")
+    assert "--from-stage" in resume_campaign
+    assert "--no-provider-replay" in resume_campaign
     assert "--ledger-only" in ledger
 
     assert "python -m pip install pytest pyyaml jinja2" in workflow
@@ -644,6 +651,7 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
         "data/cache/cache.sqlite",
         "artifacts/model.pkl",
         "metadata/registry.sqlite",
+        "runs/local.log",
         ".env",
         "secrets.json",
     ]
