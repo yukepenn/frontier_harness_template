@@ -1,13 +1,12 @@
 # Template Version
 
-Version: `3.0.0`
+Version: `0.2.0-alpha.1`
 
-Frontier Harness Generic v3.0.
+Frontier Harness runtime hardening release.
 
 Compatibility notes:
 
-- Uses Python standard library rendering.
-- Requires pytest for the test suite.
-- Generates repo-native campaign, workflow, hook, CI, canary, and Ralph scaffolding.
-- Generated Workflow 2 and auto-merge components are safe stubs until a project explicitly implements or wires provider integrations.
-- Does not include broker, live trading, or paper trading integrations.
+- Keeps the v0.1.7 provider-wired local Workflow2 MVP behavior working.
+- Adds generic provider adapters, command runner, formal phase state machine, verdict schema, worktree planning, dry-run GitHub PR/CI/merge gate helpers, real negative canaries, config validation, and upgrade tooling.
+- Real PR creation and real automerge remain opt-in and require explicit environment and lane-policy authorization.
+- Generated projects do not include broker, live trading, paper trading, production deployment, or destructive cleanup integrations.

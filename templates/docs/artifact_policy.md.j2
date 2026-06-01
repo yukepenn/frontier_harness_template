@@ -1,7 +1,5 @@
 # Artifact Policy
 
-Document which generated artifacts belong in git and which should remain local.
-
 Allowed by default:
 
 - harness files
@@ -10,15 +8,19 @@ Allowed by default:
 - docs
 - specs, handoffs, reviews, decisions
 - curated evals and configs
+- small markdown, JSON, or CSV summaries where policy permits
 
 Forbidden by default:
 
-- secrets and credentials
-- raw data
+- `.env` and `.env.*`
+- key, PEM, token, credential, and private-key-like files
+- raw data directories
 - caches
 - local virtual environments
+- `node_modules`
 - large binary artifacts
 - model weights
 - generated logs
+- parquet, sqlite, DuckDB, pickle/joblib, ONNX, pt, and pth files
 
-The authoritative policy lives in `frontier.yaml`.
+The authoritative policy lives in `frontier.yaml` and is enforced by `tools/hooks/secret_scan.py`, `tools/hooks/artifact_guard.py`, and generated canaries.

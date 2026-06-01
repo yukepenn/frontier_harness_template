@@ -1,19 +1,166 @@
-"""Frontier merge-gate scaffold."""
+"""Frontier merge gate with dry-run default and explicit automerge authorization."""
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Mapping
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.frontier.config import load_config
+from tools.frontier.verdict import VALID_VERDICTS
+
+
+PASSING = {"PASS", "PASS_WITH_WARNINGS"}
+
+
+@dataclass(frozen=True)
+class MergeGateResult:
+    status: str
+    merge_allowed: bool
+    reasons: list[str]
+    campaign_id: str
+    phase_id: str
+    lane: str
+    ci_status: str
+    verdict: str
+    dry_run: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _lane_policy(config: Mapping[str, Any], lane: str) -> Mapping[str, Any]:
+    lanes = config.get("lanes", {})
+    if isinstance(lanes, Mapping):
+        policy = lanes.get(lane.lower(), {})
+        if isinstance(policy, Mapping):
+            return policy
+    return {}
+
+
+def _verdict_from_file(path: Path | None) -> str:
+    if path is None:
+        return "BLOCKED"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "BLOCKED"
+    verdict = data.get("verdict")
+    return verdict if verdict in VALID_VERDICTS else "BLOCKED"
+
+
+def _ci_green(ci_status: str) -> bool:
+    return ci_status.lower() in {"success", "green", "passed", "pass", "ok"}
+
+
+def evaluate_merge_gate(
+    *,
+    campaign_id: str,
+    phase_id: str,
+    lane: str,
+    verdict: str,
+    ci_status: str,
+    changed_files: list[str] | None = None,
+    artifact_policy: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+    dry_run: bool = True,
+) -> MergeGateResult:
+    del artifact_policy
+    changed_files = changed_files or []
+    config = config or load_config(ROOT / "frontier.yaml")
+    env = env or os.environ
+    lane_key = lane.lower()
+    policy = _lane_policy(config, lane_key)
+    reasons: list[str] = []
+
+    if verdict not in PASSING:
+        reasons.append(f"Verdict is {verdict}.")
+    if verdict == "PASS_WITH_WARNINGS" and not bool(policy.get("merge_policy", {}).get("allow_pass_with_warnings", True)):
+        reasons.append("Lane policy does not allow PASS_WITH_WARNINGS.")
+    if not _ci_green(ci_status):
+        reasons.append(f"CI status is {ci_status}.")
+    max_changed = policy.get("max_changed_files")
+    if max_changed is not None and len(changed_files) > int(max_changed):
+        reasons.append(f"Changed files exceed lane limit: {len(changed_files)} > {max_changed}.")
+    if lane_key == "red" and env.get("FRONTIER_RED_AUTHORIZED") != "1":
+        reasons.append("Red lane requires FRONTIER_RED_AUTHORIZED=1.")
+
+    status = "BLOCKED" if reasons else verdict
+    real_merge_configured = bool(policy.get("auto_merge", False) or policy.get("can_auto_merge_when_authorized", False))
+    real_merge_authorized = env.get("FRONTIER_ALLOW_AUTOMERGE") == "1"
+    merge_allowed = status in PASSING and real_merge_configured and real_merge_authorized and not dry_run
+    if status in PASSING and not merge_allowed:
+        reasons.append("Real merge is not authorized; dry-run only.")
+
+    return MergeGateResult(
+        status=status,
+        merge_allowed=merge_allowed,
+        reasons=reasons,
+        campaign_id=campaign_id,
+        phase_id=phase_id,
+        lane=lane_key,
+        ci_status=ci_status,
+        verdict=verdict,
+        dry_run=dry_run or not merge_allowed,
+    )
+
+
+def write_merge_gate_artifacts(run_dir: Path, result: MergeGateResult) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    data = result.to_dict()
+    (run_dir / "merge_gate.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lines = [
+        "# Merge Gate Dry Run",
+        "",
+        f"Campaign: {result.campaign_id}",
+        f"Phase: {result.phase_id}",
+        f"Lane: {result.lane}",
+        f"Status: {result.status}",
+        f"Merge allowed: {str(result.merge_allowed).lower()}",
+        "",
+        "## Reasons",
+        "",
+    ]
+    lines.extend(f"- {reason}" for reason in result.reasons)
+    if not result.reasons:
+        lines.append("- No blocking reasons.")
+    (run_dir / "dry_run_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Preview Frontier merge policy. Does not merge.")
-    parser.add_argument("--phase")
-    parser.add_argument("--dry-run", action="store_true")
+    parser = argparse.ArgumentParser(description="Evaluate Frontier merge policy. Dry-run by default.")
+    parser.add_argument("--campaign-id", default="UNKNOWN")
+    parser.add_argument("--phase-id", "--phase", dest="phase_id", default="current")
+    parser.add_argument("--lane", default="green")
+    parser.add_argument("--verdict-json", type=Path)
+    parser.add_argument("--ci-status", default="success")
+    parser.add_argument("--run-dir", type=Path)
+    parser.add_argument("--apply", action="store_true", help="Allow real merge only when env and lane policy also allow it.")
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run output.")
     args = parser.parse_args(argv)
-    phase = args.phase or "current"
-    print(f"Merge gate scaffold for {phase}: no real merge was performed.")
-    print("Wire CI status, verdict JSON, branch protection, and explicit authorization before enabling merges.")
-    return 0
+
+    verdict = _verdict_from_file(args.verdict_json)
+    result = evaluate_merge_gate(
+        campaign_id=args.campaign_id,
+        phase_id=args.phase_id,
+        lane=args.lane,
+        verdict=verdict,
+        ci_status=args.ci_status,
+        dry_run=args.dry_run or not args.apply,
+    )
+    if args.run_dir:
+        write_merge_gate_artifacts(args.run_dir, result)
+    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    return 0 if result.status in PASSING else 1
 
 
 if __name__ == "__main__":

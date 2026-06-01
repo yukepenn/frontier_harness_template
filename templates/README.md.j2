@@ -1,13 +1,37 @@
 # {{ project_name }}
 
-This repository uses Frontier Harness Generic `{{ template_version }}` with profile `{{ profile_name }}`.
+This repository uses Frontier Harness `{{ template_version }}` with profile `{{ profile_name }}`.
 
-Start with:
+## Start
 
 ```bash
 python tools/verify.py --smoke
 python tools/frontier/bootstrap.py doctor
-python tools/frontier/ralph_driver.py run --campaign-id G005_WORKFLOW2_TOY
+just frontier-run-next-mock G005_WORKFLOW2_TOY
 ```
 
-Project work should be organized through campaigns, specs, handoffs, reviews, decisions, and run ledgers.
+## Workflow2 Commands
+
+```bash
+just frontier-run-campaign <campaign>
+just frontier-run-next <campaign>
+just frontier-run-campaign-mock <campaign>
+just frontier-run-next-mock <campaign>
+just frontier-run-campaign-ledger <campaign>
+just frontier-tail <run_id>
+just frontier-summary <run_id>
+just frontier-stop <run_id>
+just frontier-resume <run_id>
+```
+
+`just frontier-run-campaign <campaign>` runs campaign-loop mode. Use `FRONTIER_MAX_PHASES=1` or `just frontier-run-next <campaign>` for one-phase smoke/debug runs.
+
+## Safety Defaults
+
+- Mock provider mode never calls external CLIs.
+- Provider mode uses `claude -p` and `codex exec --sandbox workspace-write`.
+- PR creation and automerge are dry-run by default.
+- Real automerge requires explicit `frontier.yaml` lane policy and `FRONTIER_ALLOW_AUTOMERGE=1`.
+- No live trading, paper trading, broker operations, production deployment, destructive cleanup, or secrets handling is included.
+
+Project work should stay in campaigns, specs, handoffs, reviews, decisions, source, configs, and tests. Generic harness behavior belongs under the generated harness files; project-specific behavior belongs in `frontier.yaml`, campaign files, project skill files, profile config, source, configs, and project tests.

@@ -14,14 +14,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.frontier.command_runner import CommandRunner
+from tools.frontier.provider_adapters import ClaudeProviderAdapter, CodexProviderAdapter
+from tools.frontier.provider_config import ProviderRuntimeConfig, load_provider_config
+from tools.frontier.verdict import ReviewVerdict, parse_review_text
+from tools.frontier.worktree_manager import WorktreeManager, worktree_mode_enabled
+
 TOY_CAMPAIGN_ID = "G005_WORKFLOW2_TOY"
 LEDGER_ONLY_DRIVER = "ralph_frontier_strict_ledger_only_v1"
 PROVIDER_WIRED_DRIVER = "ralph_frontier_provider_wired_mvc_v1"
@@ -115,7 +123,11 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def mock_providers_enabled() -> bool:
-    return os.environ.get("FRONTIER_MOCK_PROVIDERS") == "1"
+    return load_provider_config(ROOT).mock_providers
+
+
+def runtime_config() -> ProviderRuntimeConfig:
+    return load_provider_config(ROOT)
 
 
 def parse_positive_int(value: str | int, source: str) -> int:
@@ -172,17 +184,8 @@ def resolve_max_phases(
 
 
 def run_local_command(command: list[str]) -> CommandResult:
-    try:
-        result = subprocess.run(
-            command,
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-    except FileNotFoundError as error:
-        return CommandResult(tuple(command), 127, "", str(error))
-    return CommandResult(tuple(command), result.returncode, result.stdout, result.stderr)
+    result = CommandRunner(ROOT).run(command)
+    return CommandResult(tuple(result.command), result.return_code, result.stdout, result.stderr)
 
 
 def command_block(result: CommandResult) -> str:
@@ -428,7 +431,11 @@ def initialize_toy_run(campaign_id: str) -> Path:
         "phases": [phase_state(phase) for phase in TOY_PHASES],
         "stop_requested": False,
         "started_at": utc_now(),
+        "created_at": utc_now(),
         "updated_at": utc_now(),
+        "attempts": {phase.phase_id: 0 for phase in TOY_PHASES},
+        "provider_mode": "none",
+        "lane_policy_snapshot": {},
         "completed_at": None,
         "last_event_id": 0,
         "external_providers_called": False,
@@ -544,6 +551,9 @@ def initialize_ledger_only_run(campaign_id: str) -> Path:
         "created_at": created_at,
         "started_at": created_at,
         "updated_at": created_at,
+        "attempts": {phase.phase_id: 0 for phase in campaign.phases},
+        "provider_mode": "none",
+        "lane_policy_snapshot": runtime_config().lane_policies,
         "completed_at": None,
         "last_event_id": 0,
         "phase_execution_performed": False,
@@ -604,6 +614,8 @@ def initialize_provider_wired_run(
     campaign: LedgerCampaign,
     max_phases: int,
     max_phases_source: str,
+    *,
+    worktree_mode: bool | None = None,
 ) -> Path:
     campaign_id = campaign.campaign_id
     run_id = run_id_for(campaign_id)
@@ -618,7 +630,9 @@ def initialize_provider_wired_run(
     (run_dir / "progress.txt").write_text("Provider-wired Workflow 2 run initialized.\n", encoding="utf-8")
     (run_dir / "costs.jsonl").write_text("", encoding="utf-8")
 
-    mock_enabled = mock_providers_enabled()
+    config = runtime_config()
+    mock_enabled = config.mock_providers
+    resolved_worktree_mode = worktree_mode_enabled(worktree_mode, ROOT)
     state: dict[str, Any] = {
         "schema_version": "frontier-run-state-v3",
         "run_id": run_id,
@@ -637,10 +651,16 @@ def initialize_provider_wired_run(
         "last_event_id": 0,
         "provider_wired": True,
         "mock_providers": mock_enabled,
+        "provider_mode": config.provider_mode,
+        "provider_timeout_seconds": config.provider_timeout_seconds,
+        "worktree_mode": resolved_worktree_mode,
+        "worktree_root": str(config.worktree_root) if config.worktree_root else None,
         "max_phases_requested": max_phases,
         "max_phases_source": max_phases_source,
         "campaign_phase_limit": campaign_phase_limit(campaign),
         "max_repair_attempts": DEFAULT_MAX_REPAIR_ATTEMPTS,
+        "attempts": {phase.phase_id: 0 for phase in campaign.phases},
+        "lane_policy_snapshot": config.lane_policies,
         "phase_execution_performed": False,
         "external_providers_called": False,
         "network_used": False,
@@ -692,6 +712,8 @@ def write_provider_summary(run_dir: Path, state: dict[str, Any], note: str | Non
         f"Status: {state['status']}",
         f"Provider-wired: {str(state.get('provider_wired', False)).lower()}",
         f"Mock providers: {str(state.get('mock_providers', False)).lower()}",
+        f"Provider mode: {state.get('provider_mode', 'unknown')}",
+        f"Worktree mode: {str(state.get('worktree_mode', False)).lower()}",
         f"Max phases requested: {state.get('max_phases_requested', len(state['phases']))}",
         f"Max phases source: {state.get('max_phases_source', 'unknown')}",
         f"Passing phases: {len(passing)}/{len(state['phases'])}",
@@ -987,11 +1009,13 @@ def provider_handoff_text(phase: dict[str, Any], verdict: str, mock_enabled: boo
 
 
 def claude_headless(prompt: str) -> CommandResult:
-    return run_local_command(["claude", "-p", prompt])
+    response = ClaudeProviderAdapter(runtime_config(), CommandRunner(ROOT)).run_prompt(prompt)
+    return CommandResult(tuple(response.command), response.return_code, response.stdout, response.stderr)
 
 
 def codex_noninteractive(prompt: str) -> CommandResult:
-    return run_local_command(["codex", "exec", "--sandbox", "workspace-write", prompt])
+    response = CodexProviderAdapter(runtime_config(), CommandRunner(ROOT)).run_prompt(prompt)
+    return CommandResult(tuple(response.command), response.return_code, response.stdout, response.stderr)
 
 
 def write_provider_failure(path: Path, title: str, result: CommandResult) -> None:
@@ -1011,13 +1035,7 @@ def run_validation_commands() -> tuple[bool, str]:
 
 
 def parse_review_verdict(text: str) -> str:
-    if "VERDICT: PASS_WITH_WARNINGS" in text:
-        return "PASS_WITH_WARNINGS"
-    if "VERDICT: PASS" in text:
-        return "PASS"
-    if "VERDICT: REWORK" in text:
-        return "REWORK"
-    return "BLOCKED"
+    return parse_review_text(text).verdict
 
 
 def write_provider_verdict(
@@ -1027,7 +1045,12 @@ def write_provider_verdict(
     verdict: str,
     *,
     source: str,
+    parsed: ReviewVerdict | None = None,
 ) -> None:
+    findings = parsed.findings if parsed else []
+    required_repairs = parsed.required_repairs if parsed else []
+    warnings = parsed.warnings if parsed else []
+    severity = parsed.severity if parsed else ("critical" if verdict == "BLOCKED" else "none")
     write_json(
         phase_dir / "verdict.json",
         {
@@ -1036,6 +1059,11 @@ def write_provider_verdict(
             "run_id": state["run_id"],
             "phase_id": phase["phase_id"],
             "verdict": verdict,
+            "severity": severity,
+            "findings": findings,
+            "required_repairs": required_repairs,
+            "warnings": warnings,
+            "raw_review_path": parsed.raw_review_path if parsed else None,
             "source": source,
             "mock_providers": state.get("mock_providers", False),
             "external_providers_called": state.get("external_providers_called", False),
@@ -1051,10 +1079,20 @@ def execute_provider_phase(run_dir: Path, state: dict[str, Any], phase: dict[str
     phase_id = phase["phase_id"]
     phase_dir = provider_phase_dir(run_dir, phase)
     phase_dir.mkdir(parents=True, exist_ok=True)
+    if state.get("worktree_mode"):
+        manager = WorktreeManager(ROOT, runtime_config().worktree_root)
+        plan = manager.create(state["campaign_id"], phase_id, phase.get("name"), dry_run=True)
+        (phase_dir / "worktree_plan.json").write_text(
+            json.dumps(plan.__dict__, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        append_event(run_dir, state, "WORKTREE_PLAN", phase_id=phase_id, branch=plan.branch, path=plan.path)
 
     state["status"] = "RUNNING"
     state["current_phase_id"] = phase_id
     state["current_micro_attempt"] = 1
+    state.setdefault("attempts", {})
+    state["attempts"][phase_id] = int(state["attempts"].get(phase_id, 0)) + 1
     phase["started_at"] = utc_now()
     append_event(run_dir, state, "PHASE_SELECT", phase_id=phase_id)
     write_state(run_dir, state)
@@ -1081,6 +1119,7 @@ def execute_provider_phase(run_dir: Path, state: dict[str, Any], phase: dict[str
     set_provider_phase_status(phase, "SPEC_READY")
     append_event(run_dir, state, "SPEC_READY", phase_id=phase_id)
     write_state(run_dir, state)
+    write_provider_summary(run_dir, state, f"{phase_id} spec ready.")
 
     exec_prompt_text = executor_prompt(phase, spec_text, phase_dir)
     (phase_dir / "executor_prompt.md").write_text(exec_prompt_text, encoding="utf-8")
@@ -1103,6 +1142,7 @@ def execute_provider_phase(run_dir: Path, state: dict[str, Any], phase: dict[str
     set_provider_phase_status(phase, "EXECUTED")
     append_event(run_dir, state, "EXECUTED", phase_id=phase_id)
     write_state(run_dir, state)
+    write_provider_summary(run_dir, state, f"{phase_id} executed.")
 
     validation_ok, validation_text = run_validation_commands()
     (phase_dir / "validation.md").write_text(validation_text, encoding="utf-8")
@@ -1113,6 +1153,7 @@ def execute_provider_phase(run_dir: Path, state: dict[str, Any], phase: dict[str
     set_provider_phase_status(phase, "VALIDATED")
     append_event(run_dir, state, "VALIDATED", phase_id=phase_id)
     write_state(run_dir, state)
+    write_provider_summary(run_dir, state, f"{phase_id} validated.")
 
     review_prompt_text = review_prompt(
         phase,
@@ -1134,12 +1175,15 @@ def execute_provider_phase(run_dir: Path, state: dict[str, Any], phase: dict[str
             write_provider_verdict(phase_dir, state, phase, "BLOCKED", source="claude_review_error")
             block_provider_run(run_dir, state, phase, "BLOCKED", "Claude review returned nonzero.")
             return False
-    (phase_dir / "review.md").write_text(review_text, encoding="utf-8")
-    verdict = parse_review_verdict(review_text)
-    write_provider_verdict(phase_dir, state, phase, verdict, source="review")
+    review_path = phase_dir / "review.md"
+    review_path.write_text(review_text, encoding="utf-8")
+    parsed_verdict = parse_review_text(review_text, review_path)
+    verdict = parsed_verdict.verdict
+    write_provider_verdict(phase_dir, state, phase, verdict, source="review", parsed=parsed_verdict)
     set_provider_phase_status(phase, "REVIEWED")
     append_event(run_dir, state, "REVIEWED", phase_id=phase_id, verdict=verdict)
     write_state(run_dir, state)
+    write_provider_summary(run_dir, state, f"{phase_id} reviewed with {verdict}.")
 
     if verdict == "REWORK":
         verdict = run_provider_repair_once(run_dir, state, phase, spec_text, review_text, validation_text)
@@ -1209,11 +1253,13 @@ def run_provider_repair_once(
             (phase_dir / "review.md").write_text(repaired_review_text, encoding="utf-8")
             write_provider_verdict(phase_dir, state, phase, "BLOCKED", source="repair_review_error")
             return "BLOCKED"
-    (phase_dir / "review.md").write_text(repaired_review_text, encoding="utf-8")
-    verdict = parse_review_verdict(repaired_review_text)
+    review_path = phase_dir / "review.md"
+    review_path.write_text(repaired_review_text, encoding="utf-8")
+    parsed_verdict = parse_review_text(repaired_review_text, review_path)
+    verdict = parsed_verdict.verdict
     if verdict not in PASSING_VERDICTS:
         verdict = "BLOCKED"
-    write_provider_verdict(phase_dir, state, phase, verdict, source="repair_review")
+    write_provider_verdict(phase_dir, state, phase, verdict, source="repair_review", parsed=parsed_verdict)
     append_event(run_dir, state, "REPAIR_REVIEWED", phase_id=phase_id, verdict=verdict)
     write_state(run_dir, state)
     return verdict
@@ -1229,6 +1275,9 @@ def continue_provider_wired_run(
     if max_phases_source is not None:
         state["max_phases_source"] = max_phases_source
     state.setdefault("mock_providers", mock_providers_enabled())
+    state.setdefault("provider_mode", "mock" if state.get("mock_providers") else "external")
+    state.setdefault("attempts", {phase.get("phase_id"): 0 for phase in state.get("phases", [])})
+    state.setdefault("lane_policy_snapshot", runtime_config().lane_policies)
     executed = 0
 
     while True:
@@ -1268,11 +1317,21 @@ def continue_provider_wired_run(
         executed += 1
 
 
-def run_provider_wired_campaign(campaign_id: str, max_phases: int | None) -> int:
+def run_provider_wired_campaign(
+    campaign_id: str,
+    max_phases: int | None,
+    *,
+    worktree_mode: bool | None = None,
+) -> int:
     try:
         campaign = load_ledger_campaign(campaign_id)
         resolved_max_phases, source = resolve_max_phases(campaign, max_phases)
-        run_dir = initialize_provider_wired_run(campaign, resolved_max_phases, source)
+        run_dir = initialize_provider_wired_run(
+            campaign,
+            resolved_max_phases,
+            source,
+            worktree_mode=worktree_mode,
+        )
         state = read_json(run_dir / "state.json")
         return continue_provider_wired_run(run_dir, state, resolved_max_phases, source)
     except ValueError as error:
@@ -1532,8 +1591,12 @@ def init_scaffold_run(campaign_id: str, goal: str | None, lane: str) -> Path:
         "lane": lane,
         "phases": [],
         "stop_requested": False,
+        "created_at": utc_now(),
         "started_at": utc_now(),
         "updated_at": utc_now(),
+        "attempts": {},
+        "provider_mode": "none",
+        "lane_policy_snapshot": runtime_config().lane_policies,
         "completed_at": None,
         "last_event_id": 1,
         "external_providers_called": False,
@@ -1567,6 +1630,7 @@ def run_campaign(
     ledger_only: bool = False,
     provider_wired: bool = False,
     max_phases: int | None = None,
+    worktree_mode: bool | None = None,
 ) -> int:
     if ledger_only:
         if not campaign_id:
@@ -1577,7 +1641,7 @@ def run_campaign(
         if not campaign_id:
             print("Provider-wired mode requires --campaign-id.")
             return 2
-        return run_provider_wired_campaign(campaign_id, max_phases)
+        return run_provider_wired_campaign(campaign_id, max_phases, worktree_mode=worktree_mode)
     if campaign_id == TOY_CAMPAIGN_ID:
         return run_toy_campaign(campaign_id)
 
@@ -1616,7 +1680,12 @@ def resume_ledger_only_run(run_dir: Path, state: dict[str, Any]) -> int:
     return 0
 
 
-def resume_provider_wired_run(run_dir: Path, state: dict[str, Any], max_phases: int | None) -> int:
+def resume_provider_wired_run(
+    run_dir: Path,
+    state: dict[str, Any],
+    max_phases: int | None,
+    worktree_mode: bool | None = None,
+) -> int:
     if (run_dir / "STOP").exists():
         return provider_stop_without_execution(run_dir, state, "STOP file exists on resume.")
     try:
@@ -1630,13 +1699,24 @@ def resume_provider_wired_run(run_dir: Path, state: dict[str, Any], max_phases: 
     state["completed_at"] = None
     state.setdefault("provider_wired", True)
     state.setdefault("mock_providers", mock_providers_enabled())
+    state.setdefault("provider_mode", "mock" if state.get("mock_providers") else "external")
+    state.setdefault("attempts", {phase.get("phase_id"): 0 for phase in state.get("phases", [])})
+    state.setdefault("lane_policy_snapshot", runtime_config().lane_policies)
+    if worktree_mode is not None:
+        state["worktree_mode"] = worktree_mode
     append_event(run_dir, state, "RUN_RESUME", mode="provider_wired", max_phases=resolved_max_phases)
     write_state(run_dir, state)
     progress(run_dir, "Provider-wired run resumed.")
     return continue_provider_wired_run(run_dir, state, resolved_max_phases, source)
 
 
-def resume(run_id: str, *, provider_wired: bool = False, max_phases: int | None = None) -> int:
+def resume(
+    run_id: str,
+    *,
+    provider_wired: bool = False,
+    max_phases: int | None = None,
+    worktree_mode: bool | None = None,
+) -> int:
     run_dir = ROOT / "runs" / run_id
     state_path = run_dir / "state.json"
     if not state_path.exists():
@@ -1647,7 +1727,7 @@ def resume(run_id: str, *, provider_wired: bool = False, max_phases: int | None 
     if state.get("driver") == PROVIDER_WIRED_DRIVER or (
         provider_wired and state.get("provider_wired") is True
     ):
-        return resume_provider_wired_run(run_dir, state, max_phases)
+        return resume_provider_wired_run(run_dir, state, max_phases, worktree_mode)
     if state.get("driver") == LEDGER_ONLY_DRIVER:
         return resume_ledger_only_run(run_dir, state)
     if state.get("campaign_id") != TOY_CAMPAIGN_ID:
@@ -1680,10 +1760,16 @@ def main(argv: list[str] | None = None) -> int:
     run_mode.add_argument("--ledger-only", action="store_true")
     run_mode.add_argument("--provider-wired", action="store_true")
     run_parser.add_argument("--max-phases", type=int)
+    worktree_group = run_parser.add_mutually_exclusive_group()
+    worktree_group.add_argument("--worktree-mode", action="store_true")
+    worktree_group.add_argument("--no-worktree", action="store_true")
     resume_parser = subparsers.add_parser("resume", help="Resume a stopped toy run or inspect a scaffold run.")
     resume_parser.add_argument("--run-id", required=True)
     resume_parser.add_argument("--provider-wired", action="store_true")
     resume_parser.add_argument("--max-phases", type=int)
+    resume_worktree_group = resume_parser.add_mutually_exclusive_group()
+    resume_worktree_group.add_argument("--worktree-mode", action="store_true")
+    resume_worktree_group.add_argument("--no-worktree", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -1694,9 +1780,15 @@ def main(argv: list[str] | None = None) -> int:
             ledger_only=args.ledger_only,
             provider_wired=args.provider_wired,
             max_phases=args.max_phases,
+            worktree_mode=True if args.worktree_mode else False if args.no_worktree else None,
         )
     if args.command == "resume":
-        return resume(args.run_id, provider_wired=args.provider_wired, max_phases=args.max_phases)
+        return resume(
+            args.run_id,
+            provider_wired=args.provider_wired,
+            max_phases=args.max_phases,
+            worktree_mode=True if args.worktree_mode else False if args.no_worktree else None,
+        )
     parser.print_help()
     return 0
 

@@ -14,4 +14,4 @@ jobs:
       - name: Preview merge gate
         run: |
           python tools/frontier/merge_gate.py --dry-run
-          echo "Automerge is scaffolded. Wire repository rules before enabling real merges."
+          echo "Automerge is dry-run by default. Real merge requires FRONTIER_ALLOW_AUTOMERGE=1 and lane policy."

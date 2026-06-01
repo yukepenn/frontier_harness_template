@@ -1,15 +1,53 @@
-"""Small Git helpers for Frontier scaffolding."""
+"""Small safe Git helpers for Frontier runtime tools."""
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[2]
+SLUG_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    blocked = {("reset", "--hard"), ("clean", "-fd"), ("clean", "-fdx"), ("push", "--force"), ("push", "-f")}
+    if len(args) >= 2 and tuple(args[:2]) in blocked:
+        raise ValueError(f"Refusing destructive git command: git {' '.join(args)}")
     return subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, check=False)
 
 
-def current_branch(root: Path) -> str:
+def current_branch(root: Path = ROOT) -> str:
     result = git(root, "branch", "--show-current")
     return result.stdout.strip()
+
+
+def repo_name(root: Path = ROOT) -> str:
+    return root.resolve().name
+
+
+def sanitize_component(value: str, *, fallback: str = "frontier") -> str:
+    cleaned = SLUG_RE.sub("-", value.strip()).strip(".-_/").lower()
+    return cleaned[:80] or fallback
+
+
+def changed_files(root: Path = ROOT) -> list[str]:
+    result = git(root, "diff", "--name-only", "HEAD")
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def staged_files(root: Path = ROOT) -> list[str]:
+    result = git(root, "diff", "--cached", "--name-only")
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def remote_url(root: Path = ROOT, remote: str = "origin") -> str | None:
+    result = git(root, "remote", "get-url", remote)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None

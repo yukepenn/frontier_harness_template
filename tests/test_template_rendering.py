@@ -63,6 +63,10 @@ EXPECTED_RENDERED_PATHS = [
     ".github/workflows/frontier-nightly-audit.yml",
     "tools/verify.py",
     "tools/frontier/bootstrap.py",
+    "tools/frontier/command_runner.py",
+    "tools/frontier/provider_adapters.py",
+    "tools/frontier/provider_config.py",
+    "tools/frontier/config.py",
     "tools/frontier/phase.py",
     "tools/frontier/campaign.py",
     "tools/frontier/ralph_driver.py",
@@ -89,6 +93,16 @@ EXPECTED_RENDERED_PATHS = [
     "tools/hooks/boundary_guard.py",
     "tools/hooks/canary_runner.py",
     "tests/test_ralph_driver.py",
+    "tests/test_command_runner.py",
+    "tests/test_provider_adapters.py",
+    "tests/test_state_machine.py",
+    "tests/test_verdict.py",
+    "tests/test_worktree_manager.py",
+    "tests/test_merge_gate.py",
+    "tests/test_github_utils.py",
+    "tests/test_canaries.py",
+    "tests/test_hooks.py",
+    "tests/test_frontier_config.py",
     "scripts/ralph/ralph.sh",
     "scripts/ralph/prompt.md",
     "scripts/ralph/CLAUDE.md",
@@ -401,8 +415,8 @@ def test_rendered_provider_wired_runtime_and_ci_are_present(tmp_path: Path) -> N
     assert "ralph_frontier_provider_wired_mvc_v1" in driver
     assert "def run_provider_wired_campaign" in driver
     assert "def run_ledger_only_campaign" in driver
-    assert "ALPHA_SYSTEM_V1" not in driver
-    assert "alpha_system" not in driver
+    assert ("ALPHA" + "_SYSTEM_V1") not in driver
+    assert ("alpha" + "_system") not in driver
 
     run_campaign = recipe_body(justfile, "frontier-run-campaign")
     run_next = recipe_body(justfile, "frontier-run-next")
