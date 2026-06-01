@@ -116,3 +116,4 @@ def test_provider_usage_limits_classify_as_waiting_limit_statuses() -> None:
 
 def test_generic_provider_nonzero_remains_blocked() -> None:
     assert classify_provider_nonzero("codex", "", "syntax error", 1) == PROVIDER_BLOCKED
+    assert classify_provider_nonzero("claude", "", "connection reset by peer", 1) == PROVIDER_BLOCKED

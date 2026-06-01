@@ -296,6 +296,21 @@ def list_pr_diff_files(
     )
 
 
+def get_pr_changed_files(
+    pr_number: str | int,
+    *,
+    root: Path = ROOT,
+    repo: str | None = None,
+    runner: CommandRunner | None = None,
+) -> list[str]:
+    result = list_pr_diff_files(pr_number, root=root, runner=runner, repo=repo)
+    if result.blocked:
+        detail = result.instructions or result.stderr or "Could not read PR changed files."
+        raise RuntimeError(detail)
+    files = result.metadata.get("files") if isinstance(result.metadata, dict) else []
+    return [str(item) for item in files] if isinstance(files, list) else []
+
+
 def _metadata(
     *,
     base: str,

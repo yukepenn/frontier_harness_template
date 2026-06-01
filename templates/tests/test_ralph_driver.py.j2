@@ -1039,6 +1039,41 @@ def test_merge_gate_resume_ignores_stale_run_changed_files_when_pr_diff_succeeds
     assert artifact_policy["blocked_files"] == []
 
 
+def test_merge_gate_resume_falls_back_to_run_artifacts_when_pr_diff_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run_dir, phase_dir = prepare_merge_gate_resume_run(
+        tmp_path,
+        monkeypatch,
+        changed_files=["docs/fallback.md"],
+    )
+    stub_live_pr(monkeypatch, diff_files=["docs/a.md"])
+
+    def fake_pr_diff(pr_number, root=ralph_driver.ROOT):
+        del root
+        return GitHubResult(
+            "pr_diff",
+            False,
+            ["gh", "pr", "diff", str(pr_number), "--name-only"],
+            return_code=1,
+            stderr="temporary gh failure",
+            blocked=True,
+        )
+
+    monkeypatch.setattr(ralph_driver, "list_pr_diff_files", fake_pr_diff)
+    stub_successful_resume_gates(monkeypatch)
+
+    status = run_merge_gate_resume(run_dir)
+
+    assert status == 0
+    artifact_policy = json.loads((phase_dir / "resume_artifact_policy.json").read_text(encoding="utf-8"))
+    assert artifact_policy["artifact_source"] == "run_artifacts_fallback"
+    assert artifact_policy["changed_files"] == ["docs/fallback.md"]
+    assert artifact_policy["blocked_files"] == []
+    assert "RESUME_PR_DIFF_FALLBACK" in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
 def test_merge_gate_resume_blocks_live_pr_diff_upgrade_report(tmp_path, monkeypatch) -> None:
     run_dir, phase_dir = prepare_merge_gate_resume_run(tmp_path, monkeypatch)
     stub_live_pr(monkeypatch, diff_files=[".frontier/upgrade_reports/report.json"])

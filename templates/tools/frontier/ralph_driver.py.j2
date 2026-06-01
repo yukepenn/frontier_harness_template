@@ -2566,17 +2566,20 @@ def run_deterministic_resume_gates(
         pr_diff_result = list_pr_diff_files(pr_number, root=execution_root)
         write_github_result(phase_dir / "resume_pr_diff.json", pr_diff_result)
         if pr_diff_result.blocked:
-            write_resume_precondition_failure(
+            changed = changed_files_from_artifacts(phase_dir)
+            artifact_source = "run_artifacts_fallback"
+            append_event(
                 run_dir,
                 state,
-                phase,
-                "RESUME_PRECONDITION_FAILED: live PR diff could not be read.",
-                precondition=pr_diff_result.to_dict(),
+                "RESUME_PR_DIFF_FALLBACK",
+                phase_id=phase["phase_id"],
+                pr_number=pr_number,
+                reason=pr_diff_result.instructions or pr_diff_result.stderr,
             )
-            return False
-        files = pr_diff_result.metadata.get("files") if isinstance(pr_diff_result.metadata, dict) else []
-        changed = [str(item) for item in files] if isinstance(files, list) else []
-        artifact_source = "pr_diff"
+        else:
+            files = pr_diff_result.metadata.get("files") if isinstance(pr_diff_result.metadata, dict) else []
+            changed = [str(item) for item in files] if isinstance(files, list) else []
+            artifact_source = "pr_diff"
 
     artifact_result = resume_artifact_policy(config, changed, artifact_source=artifact_source)
     write_json(phase_dir / "resume_artifact_policy.json", artifact_result)

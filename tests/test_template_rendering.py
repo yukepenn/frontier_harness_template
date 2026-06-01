@@ -418,6 +418,9 @@ def test_rendered_provider_wired_runtime_and_ci_are_present(tmp_path: Path) -> N
     assert "def resume_provider_wired_stage" in driver
     assert "--no-provider-replay" in driver
     assert "FRONTIER_RESUME_RUN" in driver
+    assert "def get_pr_changed_files" in (tmp_path / "tools" / "frontier" / "github_utils.py").read_text(
+        encoding="utf-8"
+    )
     assert "def run_ledger_only_campaign" in driver
     assert ("ALPHA" + "_SYSTEM_V1") not in driver
     assert ("alpha" + "_system") not in driver
