@@ -23,6 +23,15 @@ Forbidden by default:
 - generated logs
 - parquet, sqlite, DuckDB, pickle/joblib, ONNX, pt, and pth files
 
-The authoritative policy lives in `frontier.yaml` and is enforced by `tools/hooks/secret_scan.py`, `tools/hooks/artifact_guard.py`, and generated canaries.
+Placeholder scaffold exception:
+
+- `frontier.yaml` allows explicit placeholders from `artifacts.placeholder_exceptions`.
+- Defaults are `**/.gitkeep` and `**/README.md` inside `artifacts.placeholder_dirs`.
+- The hook and commit policy evaluate those placeholder exceptions before broad raw/cache globs.
+- Only those placeholder filenames are allowed.
+- Real files such as `data/raw/input.csv`, `data/cache/cache.db`, and `artifacts/raw/output.csv` remain blocked.
+
+The authoritative policy lives in `frontier.yaml` and is enforced by `tools/hooks/secret_scan.py`,
+`tools/hooks/artifact_guard.py`, `tools/verify.py --artifacts`, and generated canaries.
 
 Workflow2 commit behavior uses the same policy before every phase commit. The driver stages curated allowed files explicitly and never runs `git add .` or `git add -A`. Run artifacts under `runs/` are durable local evidence and are not staged by default.
