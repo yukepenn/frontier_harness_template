@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0-rc1 - 2026-06-01
+
+- G018: Added production GitHub PR creation helpers, existing PR detection, CI check polling, CI classification, and durable CI artifacts.
+- G019: Added lane-based auto-merge policy and real `gh pr merge` path gated by lane policy, CI, verdicts, artifact policy, branch protection, STOP, and red-lane authorization.
+- G020: Added branch protection inspection through `gh api`, required-check comparison, and branch protection artifacts.
+- G021: Added phase and campaign semantic done-check parsing, prompting, mock behavior, and artifacts.
+- G022: Added bounded multi-attempt repair loops with per-attempt artifacts and repair exhaustion stops.
+- G023: Added run locks, heartbeat files, budget/time stops, STOP handling, durable cost ledger records, and stronger resume checkpoints.
+- G024: Promoted Frontier-owned worktree planning/execution support with safe branch/path validation.
+- G025: Added explicit commit/push planning per phase, curated staging only, diff/status/commit artifacts, and mock no-commit defaults.
+- G026: Expanded generated runtime tests for config, GitHub, merge gate, worktree, git helpers, canaries, and Ralph mock flows.
+- G027: Extended upgrade tooling with dry-run/apply outputs, plan JSON, report Markdown, include/exclude globs, project-file preservation, and conflict reporting.
+- G028: Updated release docs and exact Workflow2/Ralph runbooks.
+- G029: Added generated `tools/frontier/acceptance.py` and `just frontier-acceptance`.
+
 ## 0.2.0-alpha.1 - 2026-06-01
 
 - G010: Added `CommandRunner`, provider config, and mock/Claude/Codex provider adapters. Claude uses `claude -p`; Codex uses `codex exec --sandbox workspace-write`; mock mode never calls external CLIs.

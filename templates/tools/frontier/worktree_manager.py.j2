@@ -101,6 +101,18 @@ class WorktreeManager:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
         return plan
 
+    def remove(self, path: Path, branch: str, *, dry_run: bool = True) -> dict[str, Any]:
+        if not is_frontier_owned_worktree(self.repo_root, path, branch):
+            raise ValueError(f"Refusing to remove non-Frontier worktree: {path}")
+        action: dict[str, Any] = {"path": str(path), "branch": branch, "dry_run": dry_run}
+        if not dry_run:
+            result = git(self.repo_root, "worktree", "remove", str(path))
+            action["return_code"] = result.returncode
+            action["stderr"] = result.stderr
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+        return action
+
     def list(self) -> list[dict[str, str]]:
         result = git(self.repo_root, "worktree", "list", "--porcelain")
         if result.returncode != 0:

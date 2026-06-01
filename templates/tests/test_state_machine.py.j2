@@ -57,6 +57,8 @@ def test_state_load_save_and_resume(tmp_path) -> None:
     save_state(run_dir / "state.json", state)
     loaded = load_state(run_dir / "state.json")
     assert loaded["run_id"] == "run1"
+    assert loaded["repair_attempts"]["P01"] == 0
+    assert loaded["last_error"] is None
     record_transition(run_dir, loaded, "P01", SPEC_READY)
 
     reloaded = load_state(run_dir / "state.json")

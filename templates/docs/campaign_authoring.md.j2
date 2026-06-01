@@ -27,5 +27,8 @@ Each phase should define:
 - handoff requirement
 - review requirement
 - merge eligibility
+- whether no-diff completion is acceptable for docs/check-only phases
 
 Generic harness behavior belongs in harness files. Project-specific behavior belongs in `frontier.yaml`, campaign files, project skill files, profile config, source, configs, and project tests.
+
+Workflow2 done-checks compare the phase spec, changed files, handoff, validation, review, verdict, `AGENTS.md`, `frontier.yaml`, and campaign requirements. Write campaign acceptance criteria concretely enough that the semantic done-check can distinguish done from incomplete.

@@ -16,11 +16,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--profile", default="generic")
     parser.add_argument("--project-name", required=True)
+    parser.add_argument("--include", action="append", default=[])
+    parser.add_argument("--exclude", action="append", default=[])
     args = parser.parse_args(argv)
 
     tmp, rendered = render_temp(args.profile, args.project_name)
     try:
-        print(report(build_plan(rendered, args.target.resolve())), end="")
+        print(
+            report(build_plan(rendered, args.target.resolve(), include=args.include, exclude=args.exclude)),
+            end="",
+        )
     finally:
         tmp.cleanup()
     return 0

@@ -1,12 +1,15 @@
 # Template Version
 
-Version: `0.2.0-alpha.1`
+Version: `v0.3.0-rc1`
 
-Frontier Harness runtime hardening release.
+Frontier Harness `v0.3.0-rc1` is a production-grade release candidate for the generic Workflow2/Ralph runtime.
 
-Compatibility notes:
+Release-candidate semantics:
 
-- Keeps the v0.1.7 provider-wired local Workflow2 MVP behavior working.
-- Adds generic provider adapters, command runner, formal phase state machine, verdict schema, worktree planning, dry-run GitHub PR/CI/merge gate helpers, real negative canaries, config validation, and upgrade tooling.
-- Real PR creation and real automerge remain opt-in and require explicit environment and lane-policy authorization.
-- Generated projects do not include broker, live trading, paper trading, production deployment, or destructive cleanup integrations.
+- Real Workflow2 loops are supported: campaign, phase selection, Claude spec, Codex execution, validation, Claude review, repair, done-check, git commit/push, PR, CI wait, merge gate, lane-based auto-merge, next phase, and `RUN_SUMMARY.md`.
+- Real auto-merge is supported for green/yellow lanes when `frontier.yaml` lane policy, CI, verdicts, artifact policy, branch protection validation, and authenticated `gh` all pass.
+- Red lane always requires explicit authorization with `FRONTIER_RED_AUTHORIZED=1` and a matching scope.
+- Worktree mode is supported but remains off by default for compatibility.
+- Downstream validation is still required before unbounded overnight runs in serious repositories.
+
+Generated projects do not include broker, live trading, paper trading, production deployment, or project-specific business logic.
