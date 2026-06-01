@@ -18,21 +18,36 @@ def test_artifact_guard_allows_curated_summaries() -> None:
 
 
 def test_artifact_guard_allows_explicit_placeholders() -> None:
-    assert not artifact_guard.forbidden("data/raw/.gitkeep")
-    assert not artifact_guard.forbidden("data/raw/README.md")
-    assert not artifact_guard.forbidden("data/cache/.gitkeep")
-    assert not artifact_guard.forbidden("data/cache/README.md")
-    assert not artifact_guard.forbidden("data/canonical/.gitkeep")
-    assert not artifact_guard.forbidden("data/factors/README.md")
+    allowed = [
+        "data/raw/.gitkeep",
+        "data/raw/README.md",
+        "data/cache/.gitkeep",
+        "data/cache/README.md",
+        "data/canonical/.gitkeep",
+        "data/factors/README.md",
+        "data/labels/README.md",
+        "metadata/README.md",
+        "artifacts/README.md",
+        "artifacts/reports/README.md",
+    ]
+    assert all(not artifact_guard.forbidden(path) for path in allowed)
 
 
 def test_artifact_guard_blocks_real_raw_cache_and_model_artifacts() -> None:
     blocked = [
         "data/raw/input.csv",
         "data/raw/input.parquet",
+        "data/raw/SPY.parquet",
         "data/cache/cache.db",
+        "data/cache/cache.sqlite",
         "artifacts/raw/output.csv",
+        "artifacts/model.pkl",
         "data/canonical/snapshot.parquet",
+        "data/factors/factors.csv",
+        "data/labels/labels.csv",
+        "metadata/registry.sqlite",
+        ".env",
+        "secrets.json",
         "state.sqlite",
         "state.db",
         "state.duckdb",

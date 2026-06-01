@@ -477,6 +477,31 @@ def recipe_body(justfile_text: str, recipe_name: str) -> str:
     return match.group(1)
 
 
+def yaml_list(text: str, parent_key: str, list_key: str) -> list[str]:
+    parent = f"{parent_key}:"
+    lines = text.splitlines()
+    try:
+        parent_index = lines.index(parent)
+    except ValueError:
+        pytest.fail(f"Missing YAML section: {parent}")
+
+    list_header = f"  {list_key}:"
+    for index in range(parent_index + 1, len(lines)):
+        line = lines[index]
+        if line and not line.startswith(" "):
+            break
+        if line == list_header:
+            values: list[str] = []
+            for item_line in lines[index + 1 :]:
+                if item_line.startswith("    - "):
+                    values.append(item_line.removeprefix("    - ").strip().strip('"'))
+                    continue
+                if item_line.strip() and not item_line.startswith("    "):
+                    break
+            return values
+    pytest.fail(f"Missing YAML list: {parent_key}.{list_key}")
+
+
 def test_rendered_secret_guards_allow_harness_security_paths(tmp_path: Path) -> None:
     profile = load_profile("generic")
     context = build_context("sample_project", profile)
@@ -538,6 +563,127 @@ def test_rendered_frontier_policy_avoids_broad_secret_substring_globs(tmp_path: 
     policy = (tmp_path / "frontier.yaml").read_text(encoding="utf-8")
     assert '"**/*secret*"' not in policy
     assert '"**/*credential*"' not in policy
+
+
+def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    policy = (tmp_path / "frontier.yaml").read_text(encoding="utf-8")
+    allow_commit = yaml_list(policy, "artifacts", "allow_commit")
+    placeholder_dirs = yaml_list(policy, "artifacts", "placeholder_dirs")
+
+    for required in [
+        ".gitignore",
+        "README.md",
+        "PROJECT_STATUS.md",
+        "data/**/README.md",
+        "data/**/.gitkeep",
+        "metadata/README.md",
+        "metadata/.gitkeep",
+        "artifacts/**/README.md",
+        "artifacts/**/.gitkeep",
+    ]:
+        assert required in allow_commit
+    assert "data/**" not in allow_commit
+    assert "artifacts/**" not in allow_commit
+
+    for required in [
+        "data/raw/**",
+        "data/cache/**",
+        "data/canonical/**",
+        "data/factors/**",
+        "data/labels/**",
+        "metadata/**",
+        "artifacts/**",
+    ]:
+        assert required in placeholder_dirs
+
+    assert 'required_checks: ["validate"]' in policy
+    assert "require_branch_protection: true" in policy
+    assert "allow_unprotected_green_merge: false" in policy
+
+
+def test_rendered_github_utils_uses_supported_check_fields(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    rendered_texts = [
+        path.read_text(encoding="utf-8")
+        for path in tmp_path.rglob("*")
+        if path.is_file() and path.stat().st_size < 500_000
+    ]
+    joined = "\n".join(rendered_texts)
+    assert "name,state," + "conclusion" not in joined
+    assert "name,state,link,bucket,workflow,event,startedAt,completedAt,description" in joined
+
+
+def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    artifact_policy = load_module(tmp_path / "tools" / "frontier" / "artifact_policy.py")
+    artifact_guard = load_module(tmp_path / "tools" / "hooks" / "artifact_guard.py")
+
+    allowed_placeholders = [
+        "data/raw/README.md",
+        "data/cache/README.md",
+        "data/labels/README.md",
+        "metadata/README.md",
+        "artifacts/README.md",
+        "artifacts/reports/README.md",
+    ]
+    blocked_artifacts = [
+        "data/raw/SPY.parquet",
+        "data/cache/cache.sqlite",
+        "artifacts/model.pkl",
+        "metadata/registry.sqlite",
+        ".env",
+        "secrets.json",
+    ]
+
+    for relative_path in allowed_placeholders:
+        assert not artifact_guard.forbidden(relative_path), relative_path
+    for relative_path in blocked_artifacts:
+        assert artifact_guard.forbidden(relative_path), relative_path
+
+    allowed, blocked = artifact_policy.curate_commit_paths(
+        allowed_placeholders[0:4] + ["artifacts/reports/README.md"] + blocked_artifacts,
+        allow_patterns=[
+            "data/**/README.md",
+            "data/**/.gitkeep",
+            "metadata/README.md",
+            "metadata/.gitkeep",
+            "artifacts/**/README.md",
+            "artifacts/**/.gitkeep",
+        ],
+        forbid_patterns=[
+            "**/.env",
+            "**/secrets.*",
+            "**/data/raw/**",
+            "**/cache/**",
+            "metadata/**",
+            "artifacts/**",
+            "**/*.parquet",
+            "**/*.sqlite",
+            "**/*.pkl",
+        ],
+    )
+    assert allowed == [
+        "artifacts/reports/README.md",
+        "data/cache/README.md",
+        "data/labels/README.md",
+        "data/raw/README.md",
+        "metadata/README.md",
+    ]
+    for relative_path in blocked_artifacts:
+        assert relative_path in blocked
 
 
 def test_rendered_test_tamper_guard_allows_own_hook(

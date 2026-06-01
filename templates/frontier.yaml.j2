@@ -214,8 +214,11 @@ git:
 
 artifacts:
   allow_commit:
+    - ".gitignore"
     - "AGENTS.md"
     - "CLAUDE.md"
+    - "README.md"
+    - "PROJECT_STATUS.md"
     - "frontier.yaml"
     - "ACTIVE_CAMPAIGN.md"
     - ".codex/**"
@@ -234,6 +237,12 @@ artifacts:
     - "src/**"
     - "tests/**"
     - "configs/**"
+    - "data/**/README.md"
+    - "data/**/.gitkeep"
+    - "metadata/README.md"
+    - "metadata/.gitkeep"
+    - "artifacts/**/README.md"
+    - "artifacts/**/.gitkeep"
 
   placeholder_exceptions:
     - "**/.gitkeep"
@@ -244,7 +253,9 @@ artifacts:
     - "data/cache/**"
     - "data/canonical/**"
     - "data/factors/**"
-    - "artifacts/raw/**"
+    - "data/labels/**"
+    - "metadata/**"
+    - "artifacts/**"
 
   forbid_commit:
     - "**/.env"

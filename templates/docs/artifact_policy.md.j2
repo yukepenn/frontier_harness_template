@@ -27,9 +27,9 @@ Placeholder scaffold exception:
 
 - `frontier.yaml` allows explicit placeholders from `artifacts.placeholder_exceptions`.
 - Defaults are `**/.gitkeep` and `**/README.md` inside `artifacts.placeholder_dirs`.
-- The hook and commit policy evaluate those placeholder exceptions before broad raw/cache globs.
+- The hook and commit policy evaluate those placeholder exceptions before broad local-only globs.
 - Only those placeholder filenames are allowed.
-- Real files such as `data/raw/input.csv`, `data/cache/cache.db`, and `artifacts/raw/output.csv` remain blocked.
+- Real files such as `data/raw/input.csv`, `data/cache/cache.db`, `metadata/registry.sqlite`, and `artifacts/model.pkl` remain blocked.
 
 The authoritative policy lives in `frontier.yaml` and is enforced by `tools/hooks/secret_scan.py`,
 `tools/hooks/artifact_guard.py`, `tools/verify.py --artifacts`, and generated canaries.

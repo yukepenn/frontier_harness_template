@@ -14,6 +14,7 @@ from tools.frontier.github_utils import (
     create_pr,
     find_existing_pr,
     inspect_branch_protection,
+    list_pr_checks,
     merge_pr,
     parse_github_remote,
     wait_for_ci,
@@ -79,6 +80,19 @@ def test_existing_pr_detection() -> None:
 
     assert pr is not None
     assert pr["number"] == 7
+
+
+def test_list_pr_checks_uses_stable_supported_fields() -> None:
+    runner = FakeRunner([Result(["gh"], stdout="[]")])
+
+    checks = list_pr_checks("3", runner=runner)
+
+    assert checks == []
+    assert runner.commands
+    command = runner.commands[0]
+    fields = command[command.index("--json") + 1]
+    assert fields == "name,state,link,bucket,workflow,event,startedAt,completedAt,description"
+    assert "conclusion" not in fields
 
 
 def test_create_pr_missing_gh_is_blocked(tmp_path, monkeypatch) -> None:
@@ -186,6 +200,12 @@ def test_ci_classification_success_failure_pending_timeout() -> None:
     assert classify_ci_checks([], timed_out=True).state == "TIMED_OUT"
 
 
+def test_ci_classification_uses_state_and_bucket_without_conclusion() -> None:
+    assert classify_ci_checks([{"name": "validate", "state": "SUCCESS", "bucket": "pass"}]).state == CI_SUCCESS
+    assert classify_ci_checks([{"name": "validate", "state": "FAILURE", "bucket": "fail"}]).state == CI_FAILURE
+    assert classify_ci_checks([{"name": "validate", "state": "QUEUED", "bucket": "pending"}]).state == CI_PENDING
+
+
 def test_ci_required_check_missing_is_not_found() -> None:
     result = classify_ci_checks([{"name": "lint", "conclusion": "success"}], required_checks=["test"])
 
@@ -194,11 +214,25 @@ def test_ci_required_check_missing_is_not_found() -> None:
 
 
 def test_wait_for_ci_success_with_mock_runner() -> None:
-    runner = FakeRunner([Result(["gh"], stdout=json.dumps([{"name": "test", "conclusion": "success"}]))])
+    runner = FakeRunner([Result(["gh"], stdout=json.dumps([{"name": "test", "state": "SUCCESS", "bucket": "pass"}]))])
 
     result = wait_for_ci("3", timeout_seconds=1, poll_seconds=1, required_checks=["test"], runner=runner)
 
     assert result.state == CI_SUCCESS
+
+
+def test_wait_for_ci_polls_not_found_until_required_check_appears() -> None:
+    runner = FakeRunner(
+        [
+            Result(["gh"], stdout="[]"),
+            Result(["gh"], stdout=json.dumps([{"name": "test", "state": "SUCCESS", "bucket": "pass"}])),
+        ]
+    )
+
+    result = wait_for_ci("3", timeout_seconds=1, poll_seconds=0, required_checks=["test"], runner=runner)
+
+    assert result.state == CI_SUCCESS
+    assert len(runner.commands) == 2
 
 
 def test_branch_protection_present(monkeypatch) -> None:

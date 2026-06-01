@@ -590,7 +590,7 @@ def test_resume_from_push_block_retries_gates_without_provider_or_new_commit(tmp
         ralph_driver,
         "wait_for_ci",
         lambda *args, **kwargs: ralph_driver.classify_ci_checks(
-            [{"name": "validate", "conclusion": "success"}],
+            [{"name": "validate", "state": "SUCCESS", "bucket": "pass"}],
             required_checks=[],
         ),
     )

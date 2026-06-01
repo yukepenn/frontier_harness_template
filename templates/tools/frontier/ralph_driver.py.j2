@@ -1882,7 +1882,10 @@ def post_phase_git_github(
         )
     elif mock_enabled:
         ci_result = classify_ci_checks(
-            [{"name": check or "mock-ci", "state": "COMPLETED", "conclusion": "success"} for check in (required_checks or ["mock-ci"])],
+            [
+                {"name": check or "mock-ci", "state": "SUCCESS", "bucket": "pass"}
+                for check in (required_checks or ["mock-ci"])
+            ],
             required_checks=required_checks,
         )
     else:
