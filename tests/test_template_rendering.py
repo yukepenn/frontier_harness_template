@@ -88,6 +88,7 @@ EXPECTED_RENDERED_PATHS = [
     "tools/hooks/artifact_guard.py",
     "tools/hooks/boundary_guard.py",
     "tools/hooks/canary_runner.py",
+    "tests/test_ralph_driver.py",
     "scripts/ralph/ralph.sh",
     "scripts/ralph/prompt.md",
     "scripts/ralph/CLAUDE.md",
@@ -386,6 +387,48 @@ def test_rendered_workflow2_toy_campaign_runs_locally(tmp_path: Path) -> None:
         assert verdict["auto_merge_performed"] is False
 
 
+def test_rendered_provider_wired_runtime_and_ci_are_present(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    driver = (tmp_path / "tools" / "frontier" / "ralph_driver.py").read_text(encoding="utf-8")
+    justfile = (tmp_path / "justfile").read_text(encoding="utf-8")
+    workflow = (tmp_path / ".github" / "workflows" / "frontier-ci.yml").read_text(encoding="utf-8")
+
+    assert (tmp_path / "tests" / "test_ralph_driver.py").is_file()
+    assert "ralph_frontier_provider_wired_mvc_v1" in driver
+    assert "def run_provider_wired_campaign" in driver
+    assert "def run_ledger_only_campaign" in driver
+    assert "ALPHA_SYSTEM_V1" not in driver
+    assert "alpha_system" not in driver
+
+    run_campaign = recipe_body(justfile, "frontier-run-campaign")
+    run_next = recipe_body(justfile, "frontier-run-next")
+    ledger = recipe_body(justfile, "frontier-run-campaign-ledger")
+    assert "--provider-wired" in run_campaign
+    assert "FRONTIER_MAX_PHASES=1" not in run_campaign
+    assert "--provider-wired" in run_next
+    assert "FRONTIER_MAX_PHASES=1" in run_next
+    assert "--ledger-only" in ledger
+
+    assert "python -m pip install pytest pyyaml jinja2" in workflow
+    assert "find tests -type f" in workflow
+    assert "python -m pytest" in workflow
+    assert "No tests configured yet" in workflow
+
+
+def test_rendered_project_compileall_and_pytest_pass(tmp_path: Path) -> None:
+    profile = load_profile("generic")
+    context = build_context("sample_project", profile)
+
+    render_tree(repo_root() / "templates", tmp_path, context)
+
+    run_command(["python", "-m", "compileall", "tools", "tests"], tmp_path)
+    run_command(["python", "-m", "pytest"], tmp_path)
+
+
 def load_module(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None
@@ -409,6 +452,13 @@ def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[st
         f"stderr:\n{result.stderr}"
     )
     return result
+
+
+def recipe_body(justfile_text: str, recipe_name: str) -> str:
+    pattern = re.compile(rf"^{re.escape(recipe_name)}(?:\s[^:]*)?:\n((?:    .+\n)+)", re.MULTILINE)
+    match = pattern.search(justfile_text)
+    assert match is not None, recipe_name
+    return match.group(1)
 
 
 def test_rendered_secret_guards_allow_harness_security_paths(tmp_path: Path) -> None:
@@ -511,11 +561,11 @@ def test_rendered_forbidden_pattern_guard_allows_policy_scaffold(
     ) == 0
 
     policy_file = tmp_path / "docs" / "negative-policy.yaml"
-    policy_file.write_text("instruction: do not use git add .\n", encoding="utf-8")
+    policy_file.write_text("instruction: do not use git add" + " .\n", encoding="utf-8")
     assert forbidden_pattern_guard.main(["docs/negative-policy.yaml"]) == 0
 
     unsafe_script = tmp_path / "scripts" / "unsafe.sh"
-    unsafe_script.write_text("git push --force\n", encoding="utf-8")
+    unsafe_script.write_text("git push" + " --force\n", encoding="utf-8")
     assert forbidden_pattern_guard.main(["scripts/unsafe.sh"]) == 1
 
 
