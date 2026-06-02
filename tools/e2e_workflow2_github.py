@@ -18,6 +18,12 @@ from typing import Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 DISPOSABLE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+DEFAULT_REPO_PREFIX = "frontier-harness-e2e"
+DELETABLE_REPO_RE = re.compile(rf"^[A-Za-z0-9_.-]+/{re.escape(DEFAULT_REPO_PREFIX)}-[A-Za-z0-9_.-]+$")
+PRIVATE_BRANCH_PROTECTION_UNAVAILABLE_MESSAGE = (
+    "Private repo branch protection is unavailable for this account/plan; rerun with "
+    "FRONTIER_E2E_VISIBILITY=public or use a plan that supports private branch protection."
+)
 
 
 @dataclass(frozen=True)
@@ -60,6 +66,8 @@ class E2EConfig:
     owner: str
     repo_prefix: str
     repo_name: str
+    visibility: str
+    require_branch_protection: bool
     delete_repo: bool
     archive_repo: bool
 
@@ -72,20 +80,40 @@ def env_flag(env: Mapping[str, str], name: str) -> bool:
     return env.get(name, "").lower() in {"1", "true", "yes", "on"}
 
 
+def env_flag_default(env: Mapping[str, str], name: str, default: bool) -> bool:
+    value = env.get(name)
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be 1/0, true/false, yes/no, or on/off.")
+
+
 def load_config(env: Mapping[str, str]) -> E2EConfig:
     if not env_flag(env, "FRONTIER_REAL_GITHUB_E2E"):
         raise RuntimeError("Set FRONTIER_REAL_GITHUB_E2E=1 to run the disposable real-GitHub E2E.")
     owner = env.get("FRONTIER_E2E_OWNER", "").strip()
     if not owner:
         raise RuntimeError("Set FRONTIER_E2E_OWNER to the GitHub user or organization that will own the disposable repo.")
-    prefix = env.get("FRONTIER_E2E_REPO_PREFIX", "frontier-harness-e2e").strip()
+    prefix = env.get("FRONTIER_E2E_REPO_PREFIX", DEFAULT_REPO_PREFIX).strip()
     if not prefix or not DISPOSABLE_RE.fullmatch(prefix):
         raise RuntimeError("FRONTIER_E2E_REPO_PREFIX must contain only letters, numbers, dot, underscore, or dash.")
+    require_branch_protection = env_flag_default(env, "FRONTIER_E2E_REQUIRE_BRANCH_PROTECTION", True)
+    visibility = env.get("FRONTIER_E2E_VISIBILITY", "").strip().lower()
+    if not visibility:
+        visibility = "public" if require_branch_protection else "private"
+    if visibility not in {"public", "private"}:
+        raise RuntimeError("FRONTIER_E2E_VISIBILITY must be public or private.")
     repo_name = f"{prefix}-{int(time.time())}-{os.getpid()}"
     return E2EConfig(
         owner=owner,
         repo_prefix=prefix,
         repo_name=repo_name,
+        visibility=visibility,
+        require_branch_protection=require_branch_protection,
         delete_repo=env_flag(env, "FRONTIER_E2E_DELETE_REPO"),
         archive_repo=env_flag(env, "FRONTIER_E2E_ARCHIVE_REPO"),
     )
@@ -107,8 +135,14 @@ def assert_disposable(config: E2EConfig, repo_name: str | None = None) -> None:
         raise RuntimeError(f"Refusing unsafe disposable repo name: {name}")
 
 
+def assert_deletable_disposable(config: E2EConfig) -> None:
+    if not DELETABLE_REPO_RE.fullmatch(config.full_name):
+        raise RuntimeError(f"Refusing to delete repo outside disposable prefix: {config.full_name}")
+
+
 def create_repo(config: E2EConfig, runner: Runner) -> None:
     assert_disposable(config)
+    visibility_flag = "--public" if config.visibility == "public" else "--private"
     require_ok(runner.run(["gh", "auth", "status"], cwd=ROOT, timeout=120), "gh auth status")
     require_ok(
         runner.run(
@@ -117,7 +151,7 @@ def create_repo(config: E2EConfig, runner: Runner) -> None:
                 "repo",
                 "create",
                 config.full_name,
-                "--private",
+                visibility_flag,
                 "--disable-wiki",
                 "--description",
                 "Disposable Frontier Harness Workflow2 E2E repository",
@@ -127,6 +161,56 @@ def create_repo(config: E2EConfig, runner: Runner) -> None:
         ),
         "gh repo create",
     )
+
+
+def repo_edit_supported_flags(runner: Runner) -> set[str]:
+    result = runner.run(["gh", "repo", "edit", "--help"], cwd=ROOT, timeout=120)
+    require_ok(result, "gh repo edit --help")
+    help_text = f"{result.stdout}\n{result.stderr}"
+    return {
+        flag
+        for flag in ("--enable-squash-merge", "--enable-auto-merge", "--delete-branch-on-merge")
+        if flag in help_text
+    }
+
+
+def configure_merge_repo_settings(config: E2EConfig, runner: Runner) -> None:
+    supported_flags = repo_edit_supported_flags(runner)
+    if "--enable-squash-merge" in supported_flags:
+        require_ok(
+            runner.run(
+                ["gh", "repo", "edit", config.full_name, "--enable-squash-merge"],
+                cwd=ROOT,
+                timeout=300,
+            ),
+            "enable squash merge",
+        )
+    else:
+        payload = {"allow_squash_merge": True}
+        require_ok(
+            runner.run(
+                ["gh", "api", "--method", "PATCH", f"repos/{config.full_name}", "--input", "-"],
+                cwd=ROOT,
+                input_text=json.dumps(payload),
+                timeout=300,
+            ),
+            "enable squash merge",
+        )
+
+    for flag, label in (
+        ("--enable-auto-merge", "auto-merge"),
+        ("--delete-branch-on-merge", "delete branch on merge"),
+    ):
+        if flag not in supported_flags:
+            print(f"Skipping {label}: gh repo edit flag {flag} is unavailable.", flush=True)
+            continue
+        result = runner.run(["gh", "repo", "edit", config.full_name, flag], cwd=ROOT, timeout=300)
+        if result.ok:
+            continue
+        print(
+            f"Skipping {label}: {' '.join(result.command)} failed.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            flush=True,
+        )
 
 
 def write_e2e_campaign(project: Path) -> str:
@@ -209,6 +293,9 @@ def bootstrap_project(config: E2EConfig, temp_root: Path, runner: Runner) -> tup
 
 
 def configure_branch_protection(config: E2EConfig, runner: Runner) -> None:
+    if not config.require_branch_protection:
+        print("Branch protection requirement disabled; skipping configuration.", flush=True)
+        return
     payload = {
         "required_status_checks": {"strict": True, "contexts": ["validate"]},
         "enforce_admins": True,
@@ -217,22 +304,34 @@ def configure_branch_protection(config: E2EConfig, runner: Runner) -> None:
         "allow_force_pushes": False,
         "allow_deletions": False,
     }
-    require_ok(
-        runner.run(
-            [
-                "gh",
-                "api",
-                "--method",
-                "PUT",
-                f"repos/{config.full_name}/branches/main/protection",
-                "--input",
-                "-",
-            ],
-            cwd=ROOT,
-            input_text=json.dumps(payload),
-            timeout=300,
-        ),
-        "configure branch protection",
+    result = runner.run(
+        [
+            "gh",
+            "api",
+            "--method",
+            "PUT",
+            f"repos/{config.full_name}/branches/main/protection",
+            "--input",
+            "-",
+        ],
+        cwd=ROOT,
+        input_text=json.dumps(payload),
+        timeout=300,
+    )
+    if result.ok:
+        return
+    if config.visibility == "private" and is_private_branch_protection_unavailable(result):
+        raise RuntimeError(PRIVATE_BRANCH_PROTECTION_UNAVAILABLE_MESSAGE)
+    require_ok(result, "configure branch protection")
+
+
+def is_private_branch_protection_unavailable(result: CommandResult) -> bool:
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    return (
+        "403" in output
+        and "upgrade to github pro" in output
+        and "make this repository public" in output
+        and "enable this feature" in output
     )
 
 
@@ -347,6 +446,7 @@ def resume_if_needed(project: Path, run_dir: Path, runner: Runner) -> None:
 def cleanup_repo(config: E2EConfig, runner: Runner) -> str:
     assert_disposable(config)
     if config.delete_repo:
+        assert_deletable_disposable(config)
         require_ok(runner.run(["gh", "repo", "delete", config.full_name, "--yes"], cwd=ROOT, timeout=300), "delete repo")
         return "deleted"
     if config.archive_repo:
@@ -360,9 +460,15 @@ def run_e2e(env: Mapping[str, str], runner: Runner | None = None) -> dict[str, o
     runner = runner or Runner()
     with tempfile.TemporaryDirectory(prefix="frontier-real-github-e2e-") as tmp:
         temp_root = Path(tmp)
-        create_repo(config, runner)
+        print(f"E2E_REPO={config.full_name}", flush=True)
+        print(f"E2E_REPO_VISIBILITY={config.visibility}", flush=True)
+        print(f"E2E_REQUIRE_BRANCH_PROTECTION={int(config.require_branch_protection)}", flush=True)
         cleanup_action = "left in place"
+        repo_created = False
         try:
+            create_repo(config, runner)
+            repo_created = True
+            configure_merge_repo_settings(config, runner)
             project, campaign_id, before_sha = bootstrap_project(config, temp_root, runner)
             configure_branch_protection(config, runner)
             run_dir = run_workflow(project, campaign_id, runner, env)
@@ -406,8 +512,10 @@ def run_e2e(env: Mapping[str, str], runner: Runner | None = None) -> dict[str, o
             print(summary_path.read_text(encoding="utf-8"))
             return summary
         finally:
-            if cleanup_action == "left in place" and (config.delete_repo or config.archive_repo):
+            if repo_created and cleanup_action == "left in place" and (config.delete_repo or config.archive_repo):
                 cleanup_repo(config, runner)
+            elif repo_created and cleanup_action == "left in place":
+                print(f"Preserved E2E_REPO={config.full_name}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
