@@ -640,6 +640,24 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
         ".gitignore",
         "README.md",
         "PROJECT_STATUS.md",
+        "frontier.yaml",
+        "ACTIVE_CAMPAIGN.md",
+        ".codex/**",
+        ".claude/**",
+        ".githooks/**",
+        ".github/**",
+        "tools/**",
+        "scripts/**",
+        "campaigns/**",
+        "specs/**",
+        "handoffs/**",
+        "reviews/**",
+        "decisions/**",
+        "docs/**",
+        "evals/**",
+        "src/**",
+        "tests/**",
+        "configs/**",
         "data/**/README.md",
         "data/**/.gitkeep",
         "metadata/README.md",
@@ -671,6 +689,19 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
     assert 'required_checks: ["validate"]' in policy
     assert "require_branch_protection: true" in policy
     assert "allow_unprotected_green_merge: false" in policy
+
+
+def test_runtime_templates_do_not_use_broad_git_add() -> None:
+    roots = [repo_root() / "templates" / "tools", repo_root() / "templates" / "tests"]
+    patterns = ["git add" + " .", "git add" + " -A"]
+    offenders: list[str] = []
+    for root in roots:
+        for path in root.rglob("*"):
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+                if any(pattern in text for pattern in patterns):
+                    offenders.append(str(path.relative_to(repo_root())))
+    assert offenders == []
 
 
 def test_rendered_github_utils_uses_supported_check_fields(tmp_path: Path) -> None:
