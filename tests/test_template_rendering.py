@@ -662,6 +662,8 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
         "data/**/.gitkeep",
         "metadata/README.md",
         "metadata/.gitkeep",
+        "artifacts/README.md",
+        "artifacts/.gitkeep",
         "artifacts/**/README.md",
         "artifacts/**/.gitkeep",
     ]:
@@ -689,6 +691,12 @@ def test_rendered_frontier_policy_keeps_ci_and_artifact_safety_gates(tmp_path: P
     assert 'required_checks: ["validate"]' in policy
     assert "require_branch_protection: true" in policy
     assert "allow_unprotected_green_merge: false" in policy
+
+    gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert "!artifacts/README.md" in gitignore
+    assert "!artifacts/.gitkeep" in gitignore
+    assert "!artifacts/**/README.md" in gitignore
+    assert "!artifacts/**/.gitkeep" in gitignore
 
 
 def test_runtime_templates_do_not_use_broad_git_add() -> None:
@@ -735,13 +743,17 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
         "data/labels/README.md",
         "metadata/README.md",
         "artifacts/README.md",
+        "artifacts/.gitkeep",
         "artifacts/reports/README.md",
     ]
     blocked_artifacts = [
         ".frontier/upgrade_reports/report.json",
         "data/raw/SPY.parquet",
         "data/cache/cache.sqlite",
+        "artifacts/report.pkl",
         "artifacts/model.pkl",
+        "artifacts/model.joblib",
+        "artifacts/output.parquet",
         "metadata/registry.sqlite",
         "runs/run1/state.json",
         "runs/local.log",
@@ -756,12 +768,14 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
         assert artifact_guard.forbidden(relative_path), relative_path
 
     allowed, blocked = artifact_policy.curate_commit_paths(
-        allowed_placeholders[0:4] + ["artifacts/reports/README.md"] + blocked_artifacts,
+        allowed_placeholders + blocked_artifacts,
         allow_patterns=[
             "data/**/README.md",
             "data/**/.gitkeep",
             "metadata/README.md",
             "metadata/.gitkeep",
+            "artifacts/README.md",
+            "artifacts/.gitkeep",
             "artifacts/**/README.md",
             "artifacts/**/.gitkeep",
         ],
@@ -779,9 +793,12 @@ def test_rendered_artifact_placeholder_policy_and_guard(tmp_path: Path) -> None:
             "**/*.parquet",
             "**/*.sqlite",
             "**/*.pkl",
+            "**/*.joblib",
         ],
     )
     assert allowed == [
+        "artifacts/.gitkeep",
+        "artifacts/README.md",
         "artifacts/reports/README.md",
         "data/cache/README.md",
         "data/labels/README.md",
