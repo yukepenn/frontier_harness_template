@@ -106,6 +106,7 @@ EXPECTED_RENDERED_PATHS = [
     "tests/test_canaries.py",
     "tests/test_hooks.py",
     "tests/test_frontier_config.py",
+    "tests/test_workflow2_fake_github_e2e.py",
     "scripts/ralph/ralph.sh",
     "scripts/ralph/prompt.md",
     "scripts/ralph/CLAUDE.md",

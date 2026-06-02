@@ -1,0 +1,356 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+from tools.frontier import github_utils, ralph_driver
+
+
+CAMPAIGN_ID = "FAKE_GITHUB_WORKFLOW2_E2E"
+
+
+@dataclass(frozen=True)
+class GhResult:
+    command: list[str]
+    return_code: int = 0
+    stdout: str = ""
+    stderr: str = ""
+
+
+class FakeGh:
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+        self.pr_number = 6
+        self.pr_created = False
+        self.auto_merge_armed = False
+        self.return_merged = False
+        self.head_ref_oid = ""
+        self.head_ref_name = ""
+
+    def run(self, command, **kwargs):
+        del kwargs
+        command = [str(part) for part in command]
+        self.commands.append(command)
+        if command[:3] == ["gh", "auth", "status"]:
+            return GhResult(command, stdout="Logged in to github.com\n")
+        if command[:3] == ["gh", "repo", "view"]:
+            return GhResult(command, stdout="main\n")
+        if command[:3] == ["gh", "pr", "list"]:
+            if not self.pr_created:
+                return GhResult(command, stdout="[]")
+            return GhResult(
+                command,
+                stdout=json.dumps(
+                    [
+                        {
+                            "number": self.pr_number,
+                            "title": "fake e2e",
+                            "url": f"https://github.com/fake-owner/fake-repo/pull/{self.pr_number}",
+                            "headRefName": self.head_ref_name,
+                            "baseRefName": "main",
+                            "state": "OPEN",
+                        }
+                    ]
+                ),
+            )
+        if command[:3] == ["gh", "pr", "create"]:
+            self.pr_created = True
+            if "--head" in command:
+                self.head_ref_name = command[command.index("--head") + 1]
+            return GhResult(command, stdout=f"https://github.com/fake-owner/fake-repo/pull/{self.pr_number}\n")
+        if command[:3] == ["gh", "pr", "checks"]:
+            return GhResult(
+                command,
+                stdout=json.dumps(
+                    [
+                        {
+                            "name": "validate",
+                            "state": "SUCCESS",
+                            "bucket": "pass",
+                            "workflow": "frontier-ci",
+                            "event": "pull_request",
+                            "link": "https://github.com/fake-owner/fake-repo/actions/runs/1",
+                        }
+                    ]
+                ),
+            )
+        if command[:2] == ["gh", "api"]:
+            return GhResult(
+                command,
+                stdout=json.dumps(
+                    {
+                        "required_status_checks": {
+                            "contexts": ["validate"],
+                            "checks": [{"context": "validate"}],
+                        }
+                    }
+                ),
+            )
+        if command[:3] == ["gh", "pr", "diff"]:
+            return GhResult(command, stdout="docs/fake_workflow2_e2e.md\n")
+        if command[:3] == ["gh", "pr", "view"]:
+            state = "MERGED" if self.return_merged else "OPEN"
+            merged_at = "2026-01-01T00:00:00Z" if self.return_merged else None
+            return GhResult(
+                command,
+                stdout=json.dumps(
+                    {
+                        "number": self.pr_number,
+                        "state": state,
+                        "mergedAt": merged_at,
+                        "mergeStateStatus": "CLEAN",
+                        "isDraft": False,
+                        "headRefOid": self.head_ref_oid,
+                        "headRefName": self.head_ref_name,
+                        "baseRefName": "main",
+                        "statusCheckRollup": [
+                            {"name": "validate", "state": "SUCCESS", "bucket": "pass"},
+                        ],
+                    }
+                ),
+            )
+        if command[:3] == ["gh", "pr", "merge"] and "--auto" in command:
+            self.auto_merge_armed = True
+            return GhResult(command, stdout="Auto-merge enabled for pull request #6\n")
+        if command[:3] == ["gh", "pr", "merge"]:
+            return GhResult(
+                command,
+                return_code=1,
+                stderr=(
+                    "base branch policy prohibits the merge. To have the pull request merged after all "
+                    "the requirements have been met, add the `--auto` flag."
+                ),
+            )
+        return GhResult(command, return_code=1, stderr=f"Unhandled fake gh command: {' '.join(command)}")
+
+
+def run_git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr or result.stdout
+    return result.stdout.strip()
+
+
+def write_campaign(root: Path) -> None:
+    (root / "frontier.yaml").write_text(
+        """schema_version: "frontier-harness-v3"
+project:
+  default_branch: "main"
+providers:
+  mock:
+    enabled: false
+workflow2:
+  enabled: true
+  auto_pr: true
+  auto_merge: true
+  max_phases: 1
+  max_micro_loops_default: 1
+  max_repair_attempts_default: 1
+  max_run_minutes: 60
+  max_phase_minutes: 60
+  max_estimated_usd: 0
+  semantic_done_check_required: true
+  worktree_mode: false
+github:
+  auto_create_pr: true
+  ci_timeout_seconds: 1
+  ci_poll_seconds: 0
+  required_checks: ["validate"]
+  require_ci: true
+  require_branch_protection: true
+  allow_unprotected_green_merge: false
+  allow_unprotected_dry_run: true
+  merge_method: "squash"
+git:
+  auto_create_pr: true
+  explicit_add_only: true
+  forbid_git_add_dot: true
+  forbid_git_add_A: true
+  forbid_force_push: true
+artifacts:
+  allow_commit: ["docs/**", "src/**", "tests/**"]
+  forbid_commit: ["runs/**", ".frontier/upgrade_reports/**", "**/.env"]
+lanes:
+  yellow:
+    required_checks: ["validate"]
+    require_claude_review: true
+    auto_pr: true
+    auto_merge: true
+    max_micro_loops: 1
+    max_repair_attempts: 1
+    max_phase_minutes: 60
+    max_changed_files: 50
+    merge_policy:
+      allow_pass_with_warnings: true
+""",
+        encoding="utf-8",
+    )
+    campaign_dir = root / "campaigns" / CAMPAIGN_ID
+    campaign_dir.mkdir(parents=True)
+    (campaign_dir / "GOAL.md").write_text("# Fake GitHub E2E\n\nExercise generic Workflow 2 tail.\n", encoding="utf-8")
+    (campaign_dir / "PHASE_PLAN.md").write_text(
+        "# Phase Plan\n\n| Phase | Name | Lane | Dependencies |\n| --- | --- | --- | --- |\n| P00 | Fake GitHub tail | YELLOW | none |\n",
+        encoding="utf-8",
+    )
+    (campaign_dir / "campaign.yaml").write_text(
+        f"""campaign_id: "{CAMPAIGN_ID}"
+workflow: "workflow2"
+default_lane: "yellow"
+limits:
+  max_phases: 1
+phases:
+  - id: "P00"
+    name: "Fake GitHub tail"
+    lane: "YELLOW"
+    dependencies: []
+""",
+        encoding="utf-8",
+    )
+    for name in ("ACCEPTANCE.md", "RISK_REGISTER.md", "RUNBOOK.md"):
+        (campaign_dir / name).write_text(f"# {name}\n\nFake GitHub E2E fixture.\n", encoding="utf-8")
+
+
+def init_repo(root: Path) -> str:
+    remote = root.parent / "fake-origin.git"
+    run_git(root.parent, "init", "--bare", remote.name)
+    run_git(root, "init", "-b", "main")
+    run_git(root, "config", "user.email", "frontier@example.invalid")
+    run_git(root, "config", "user.name", "Frontier Test")
+    run_git(root, "remote", "add", "origin", str(remote))
+    (root / ".gitignore").write_text("runs/\n.frontier/upgrade_reports/\n", encoding="utf-8")
+    paths = [
+        ".gitignore",
+        "frontier.yaml",
+        f"campaigns/{CAMPAIGN_ID}/GOAL.md",
+        f"campaigns/{CAMPAIGN_ID}/PHASE_PLAN.md",
+        f"campaigns/{CAMPAIGN_ID}/campaign.yaml",
+        f"campaigns/{CAMPAIGN_ID}/ACCEPTANCE.md",
+        f"campaigns/{CAMPAIGN_ID}/RISK_REGISTER.md",
+        f"campaigns/{CAMPAIGN_ID}/RUNBOOK.md",
+    ]
+    for path in paths:
+        run_git(root, "add", "--", path)
+    run_git(root, "commit", "-m", "test: base")
+    run_git(root, "push", "-u", "origin", "main")
+    return run_git(root, "rev-parse", "HEAD")
+
+
+def latest_run(root: Path) -> Path:
+    matches = sorted((root / "runs").glob(f"*{CAMPAIGN_ID}*"))
+    assert matches
+    return matches[-1]
+
+
+def test_workflow2_fake_github_e2e_auto_merge_resume(tmp_path, monkeypatch) -> None:
+    write_campaign(tmp_path)
+    init_repo(tmp_path)
+    fake = FakeGh()
+    provider_calls: list[str] = []
+    claude_outputs = iter(
+        [
+            "# Spec\n\nCommit-Eligible Allowed Paths:\n- docs/fake_workflow2_e2e.md\n\nLocal-Only Run Artifacts:\n- runs/<run_id>/phases/P00/\n",
+            "# Review\n\nVERDICT: PASS\n",
+            "# Done Check\n\nDONE_CHECK: PASS\n",
+        ]
+    )
+
+    class FakeRunnerFactory:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def run(self, command, **kwargs):
+            return fake.run(command, **kwargs)
+
+    def fake_claude(prompt: str, root: Path = ralph_driver.ROOT):
+        del prompt, root
+        provider_calls.append("claude")
+        return ralph_driver.CommandResult(("claude",), 0, next(claude_outputs), "")
+
+    def fake_codex(prompt: str, root: Path = ralph_driver.ROOT):
+        del prompt
+        provider_calls.append("codex")
+        (root / "docs").mkdir(exist_ok=True)
+        (root / "docs" / "fake_workflow2_e2e.md").write_text(
+            "# Fake Workflow2 E2E\n\nGenerated by fixture provider.\n",
+            encoding="utf-8",
+        )
+        return ralph_driver.CommandResult(("codex", "exec"), 0, "# Executor\n\nUpdated docs/fake_workflow2_e2e.md.\n", "")
+
+    monkeypatch.setattr(ralph_driver, "ROOT", tmp_path)
+    monkeypatch.setattr(github_utils, "CommandRunner", FakeRunnerFactory)
+    monkeypatch.setattr(github_utils, "detect_repo_owner_name", lambda root=github_utils.ROOT: ("fake-owner", "fake-repo"))
+    monkeypatch.setattr(ralph_driver, "claude_headless", fake_claude)
+    monkeypatch.setattr(ralph_driver, "codex_noninteractive", fake_codex)
+    monkeypatch.setattr(ralph_driver, "run_phase_validation", lambda root: (True, "# Validation\n\nPassed.\n"))
+    monkeypatch.setenv("FRONTIER_CREATE_PR", "1")
+    monkeypatch.setenv("FRONTIER_ALLOW_AUTOMERGE", "1")
+    monkeypatch.delenv("FRONTIER_MOCK_PROVIDERS", raising=False)
+    monkeypatch.delenv("FRONTIER_MERGE_DRY_RUN", raising=False)
+
+    status = ralph_driver.run_campaign(CAMPAIGN_ID, None, "yellow", provider_wired=True, max_phases=1)
+
+    assert status == 0
+    run_dir = latest_run(tmp_path)
+    phase_dir = run_dir / "phases" / "P00"
+    state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    phase = state["phases"][0]
+    assert state["status"] == ralph_driver.AUTO_MERGE_ARMED
+    assert phase["status"] == ralph_driver.AUTO_MERGE_ARMED
+    assert state["codex_called_by_driver"] is True
+    assert state["claude_called_by_driver"] is True
+    assert state["prs_created"] is True
+    assert state["auto_merge_performed"] is False
+    assert state["status"] != ralph_driver.MERGE_GATE_BLOCKED
+    assert fake.pr_created is True
+    assert fake.auto_merge_armed is True
+
+    git_phase = json.loads((phase_dir / "git_phase.json").read_text(encoding="utf-8"))
+    push_branch = json.loads((phase_dir / "push_branch.json").read_text(encoding="utf-8"))
+    remote_branch = json.loads((phase_dir / "remote_branch.json").read_text(encoding="utf-8"))
+    ci_status = json.loads((phase_dir / "ci_status.json").read_text(encoding="utf-8"))
+    branch_protection = json.loads((phase_dir / "branch_protection.json").read_text(encoding="utf-8"))
+    merge_gate = json.loads((phase_dir / "merge_gate.json").read_text(encoding="utf-8"))
+    merge_result = json.loads((phase_dir / "merge_result.json").read_text(encoding="utf-8"))
+
+    assert git_phase["commit_sha"]
+    assert push_branch["pushed"] is True
+    assert remote_branch["matches"] is True
+    assert ci_status["state"] == "SUCCESS"
+    assert branch_protection["status"] == "PASS"
+    assert merge_gate["status"] == "PASS"
+    assert merge_gate["merge_allowed"] is True
+    assert merge_result["metadata"]["classification"] == "branch_policy_auto_armed"
+    assert merge_result["metadata"]["status"] == ralph_driver.AUTO_MERGE_ARMED
+    assert any(command[:4] == ["gh", "pr", "merge", "6"] and "--auto" not in command for command in fake.commands)
+    assert any(command[:4] == ["gh", "pr", "merge", "6"] and "--auto" in command for command in fake.commands)
+
+    fake.head_ref_oid = git_phase["commit_sha"]
+    fake.return_merged = True
+    provider_count = len(provider_calls)
+    resume_status = ralph_driver.main(
+        [
+            "resume",
+            "--campaign-id",
+            CAMPAIGN_ID,
+            "--run-dir",
+            str(run_dir),
+            "--phase-id",
+            "P00",
+            "--from-stage",
+            "merge",
+            "--provider-wired",
+            "--no-provider-replay",
+        ]
+    )
+
+    assert resume_status == 0
+    assert len(provider_calls) == provider_count
+    resumed = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    assert resumed["phases"][0]["status"] == "PASS"
+    assert resumed["phases"][0]["merged"] is True
+    final_merge_result = json.loads((phase_dir / "merge_result.json").read_text(encoding="utf-8"))
+    assert final_merge_result["metadata"]["status"] == ralph_driver.ALREADY_MERGED
+    events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert "MERGED" in events
+    assert "PHASE_COMPLETED" in events
